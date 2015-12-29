@@ -1,0 +1,94 @@
+DROP FUNCTION IF EXISTS ufnGetProductType;
+DELIMITER $$
+CREATE FUNCTION ufnGetProductType (
+	CarTypeName VARCHAR(255))
+RETURNS VARCHAR(255)
+DETERMINISTIC
+BEGIN
+	DECLARE ProductTypeName VARCHAR(255);
+    SET ProductTypeName = (SELECT ProductTypeName FROM ProductTypes ORDER BY RAND() LIMIT 0,1);
+    RETURN ProductTypeName;
+END$$
+DELIMITER ;
+
+DROP FUNCTION IF EXISTS ufnGetProducingIndustry;
+DELIMITER $$
+CREATE FUNCTION ufnGetProducingIndustry (
+	ProductTypeName VARCHAR(255))
+RETURNS VARCHAR(255)
+DETERMINISTIC
+BEGIN
+	DECLARE IndustryName VARCHAR(255);
+    CREATE TEMPORARY TABLE IndustriesList (
+		IndustryID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        Industry VARCHAR(255) NOT NULL
+	);
+    
+	SET @minimumActivity = (SELECT MIN(ActivityLevel) FROM IndustryActivities WHERE IndustryName IN (SELECT IndustryName FROM IndustriesAvailable));
+    SET @maximumActivity = (SELECT MAX(ActivityLevel) FROM IndustryActivities WHERE IndustryName IN (SELECT IndustryName FROM IndustriesAvailable));
+    SET @activityLevel = @maximumActivity;
+    SET @counter = @minimumActivity;
+    WHILE @activityLevel > @minimumActivity DO
+		WHILE @counter < @activityLevel DO
+			#SELECT IndustryName INTO IndustriesList FROM IndustriesAvailable a JOIN IndustryActivities b ON IndustryName WHERE b.ActivityLevel = @activityLevel; 
+            INSERT INTO IndustriesList (IndustryID, Industry) SELECT NULL, IndustryName FROM IndustriesAvailable a JOIN IndustryActivities b ON IndustryName WHERE b.ActivityLevel = @activityLevel;
+            SET @counter = @counter + 1;
+		END WHILE;
+		SET @activityLevel = @activityLevel - 1;
+	END WHILE;
+    SET IndustryName = (SELECT Industry FROM IndustriesList ORDER BY RAND() LIMIT 0,1);
+    RETURN IndustryName;
+END$$
+DELIMITER ;
+
+DROP FUNCTION IF EXISTS ufnGetIndustrySiding;
+DELIMITER $$
+CREATE FUNCTION ufnGetIndustrySiding (
+	IndustryName VARCHAR(255),
+    ProductTypeName VARCHAR(255))
+RETURNS INT
+DETERMINISTIC
+BEGIN
+	DECLARE SidingNumber INT;
+    SET SidingNumber = 0;
+    RETURN SidingNumber;
+END$$
+DELIMITER ;
+
+DROP FUNCTION IF EXISTS ufnGetConsumingIndustry;
+DELIMITER $$
+CREATE FUNCTION ufnGetConsumingIndustry (
+	ProductTypeName VARCHAR(255))
+RETURNS VARCHAR(255)
+DETERMINISTIC
+BEGIN
+	DECLARE IndustryName VARCHAR(255);
+    SET IndustryName = 'temp';
+    RETURN IndustryName;
+END$$
+DELIMITER ;
+
+DROP FUNCTION IF EXISTS ufnGetReturnYard;
+DELIMITER $$
+CREATE FUNCTION ufnGetReturnYard ()
+RETURNS VARCHAR(255)
+DETERMINISTIC
+BEGIN
+	DECLARE YardName VARCHAR(255);
+    SET YardName = 'temp';
+    RETURN YardName;
+END$$
+DELIMITER ;
+
+DROP FUNCTION IF EXISTS ufnGetCarModuleName;
+DELIMITER $$
+CREATE FUNCTION ufnGetCarModuleName (
+	CarID INT)
+RETURNS VARCHAR(255)
+DETERMINISTIC
+BEGIN
+	DECLARE ModuleName VARCHAR(255);
+    SET ModuleName = 'temp';
+    RETURN ModuleName;
+END$$
+DELIMITER ;
