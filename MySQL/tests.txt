@@ -1,0 +1,97 @@
+#Section D:  Game Session
+#Notes:  A locomotive is selected to declare a new train will exist,
+#	originating on a particular module.  Available rolling stock for trains are
+#	identified and must be assigned to an originating yard or industry.
+#	Shipment orders are created on demand based off of current layout and
+#	industry parameters.  For each rolling stock car, waybills must be
+#	associated with a shipping order before that car is consisted to a train.
+#	For each train, crews are declared and then assigned to a train.  The train
+#	and player are then considered to be ready for game play.
+#
+#Expected Insertion Order:
+#Declare Trains
+#Declare TrainLocations for Trains
+#Declare RollingStockCars
+#Declare Shipments
+#Declare Waybills for Shipments on RollingStockCars
+#Declare ConsistedCars for Trains using RollingStockCars
+#Declare Crews
+#Declare TrainCrews for Crews on Trains
+
+#Test uspClientAddTrain
+CALL uspClientAddTrain(1, 1234, 1234, 'Black River Yard');
+CALL uspClientAddTrain(2, 5555, 5555, 'Black River Yard');
+CALL uspClientAddTrain(3, 333, 333, 'Black River Yard'); 
+CALL uspClientAddTrain(1, 1234, 1234, 'Black River Yard'); -- This train already exists.
+CALL uspClientAddTrain(4, 1234, 1234, 'Unknown'); -- This module does not exist or is not active.
+DELETE FROM Trains WHERE TrainNumber = 1;
+DELETE FROM Trains WHERE TrainNumber = 2;
+DELETE FROM Trains WHERE TrainNumber = 3;
+
+#Test uspClientRemoveTrain
+CALL uspClientAddTrain(1, 1234, 1234, 'Black River Yard');
+CALL uspClientAddTrain(2, 5555, 5555, 'Black River Yard');
+CALL uspClientAddTrain(3, 333, 333, 'Black River Yard');
+CALL uspClientRemoveTrain(2);
+CALL uspClientRemoveTrain(3);
+INSERT INTO RollingStockCars VALUES ('XX', 'Box Car');
+INSERT INTO ConsistedCars VALUES (1, 'XX', DEFAULT);
+CALL uspClientRemoveTrain(2); -- Train not found.
+CALL uspClientRemoveTrain(1); -- Train has remaining consisted cars.
+DELETE FROM ConsistedCars WHERE TrainNumber = 1 AND CarID = 'XX';
+DELETE FROM RollingStockCars WHERE CarID = 'XX';
+CALL uspClientRemoveTrain(1);
+
+#Test uspClientModifyTrain
+CALL uspClientAddTrain(1, 2222, 2222, 'Black River Yard');
+CALL uspClientModifyTrain(1, 1111, 1111);
+CALL uspClientModifyTrain(2, 1111, 1111); -- Train not found.
+CALL uspClientRemoveTrain(1);
+
+#Test uspClientAddCarToGame
+CALL uspClientAddCarToGame('XX', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('YY', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('XX', 'Box Car', 'Black River Yard'); -- This car already exists.
+CALL uspClientAddCarToGame('ZZ', 'Unknown', 'Black River Yard'); -- This car type does not exist.
+CALL uspClientAddCarToGame('ZZ', 'Box Car', 'Unknown'); -- This yard does not exist.
+DELETE FROM RollingStockCars WHERE CarID = 'XX';
+DELETE FROM RollingStockCars WHERE CarID = 'YY';
+
+#Test uspClientRemoveCarFromGame
+CALL uspClientAddCarToGame('XX', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('YY', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('ZZ', 'Reefer', 'Black River Yard');
+CALL uspClientAddTrain(1, 1234, 1234, 'Black River Yard');
+INSERT INTO Shipments VALUES (DEFAULT, 'Dairy', 'Half Circle Farms', 1, 'MMI Transfer Site 3', 1, DEFAULT);
+INSERT INTO Waybills VALUES ('ZZ', LAST_INSERT_ID(), 'Black River Yard');
+INSERT INTO ConsistedCars VALUES (1, 'ZZ', DEFAULT);
+DELETE FROM RollingStockAtYards WHERE CarID = 'ZZ';
+CALL uspClientRemoveCarFromGame('XX');
+CALL uspClientRemoveCarFromGame('YY');
+CALL uspClientRemoveCarFromGame('YY'); -- Car not found.
+CALL uspClientRemoveCarFromGame('ZZ'); -- Car is consisted to a train and cannot be removed.
+DELETE FROM ConsistedCars WHERE TrainNumber = 1 AND CarID = 'ZZ';
+CALL uspClientRemoveCarFromGame('ZZ'); -- Car has existing waybill and cannot be removed.
+DELETE FROM Waybills WHERE CarID = 'ZZ';
+CALL uspClientRemoveCarFromGame('ZZ');
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE Shipments;
+SET FOREIGN_KEY_CHECKS = 1;
+
+#Test ufnGetProductType
+CALL uspClientAddCarToGame('XX', 'Box Car', 'Black River Yard');
+SELECT ufnGetProductType('XX');
+
+
+#Test ufnGetProducingIndustry
+SELECT ufnGetProducingIndustry('Garbage');
+
+#Test ufnGetProducingIndustry
+CALL uspClientAddCarToGame('XX', 'Wood Chip Car', 'Black River Yard');
+SELECT ufnGetProducingIndustry('XX', 'Garbage');
+CALL uspClientRemoveCarFromGame('XX');
+
+#Test
+SELECT ufnGetIndustrySiding('MMI Transfer Site 3', 'General Merchandise');
+
+#Test
