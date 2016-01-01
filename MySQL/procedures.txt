@@ -1,3 +1,4 @@
+#uspClientAddTrain
 DROP PROCEDURE IF EXISTS uspClientAddTrain;
 DELIMITER $$
 CREATE PROCEDURE uspClientAddTrain (
@@ -19,6 +20,7 @@ BEGIN
 END$$
 DELIMITER ;
 
+#uspClientRemoveTrain
 DROP PROCEDURE IF EXISTS uspClientRemoveTrain;
 DELIMITER $$
 CREATE PROCEDURE uspClientRemoveTrain (
@@ -36,6 +38,7 @@ BEGIN
 END$$
 DELIMITER ;
 
+#uspClientModifyTrain
 DROP PROCEDURE IF EXISTS uspClientModifyTrain;
 DELIMITER $$
 CREATE PROCEDURE uspClientModifyTrain (
@@ -52,6 +55,7 @@ BEGIN
 END$$
 DELIMITER ;
 
+#uspClientAddCarToGame
 DROP PROCEDURE IF EXISTS uspClientAddCarToGame;
 DELIMITER $$
 CREATE PROCEDURE uspClientAddCarToGame (
@@ -76,6 +80,7 @@ BEGIN
 END$$
 DELIMITER ;
 
+#uspClientRemoveCarFromGame
 DROP PROCEDURE IF EXISTS uspClientRemoveCarFromGame;
 DELIMITER $$
 CREATE PROCEDURE uspClientRemoveCarFromGame (
@@ -97,6 +102,7 @@ BEGIN
 END$$
 DELIMITER ;
 
+#uspClientAddCarToService
 DROP PROCEDURE IF EXISTS uspClientAddCarToService;
 DELIMITER $$
 CREATE PROCEDURE uspClientAddCarToService (
@@ -105,22 +111,38 @@ BEGIN
 	IF (MyCarID NOT IN (SELECT CarID FROM RollingStockCars WHERE CarID = MyCarID)) THEN
 		SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'This car could not be found.';
-	ELSE
-		SET @carLength = (SELECT CarLength
-			FROM RollingStockTypes
-			WHERE CarTypeName = (SELECT CarTypeName
-				FROM RollingStockCars
-				WHERE CarID = MyCarID));
-        SET @productTypeName = ufnGetProductType(MyCarID);
-		SET @fromIndustry = ufnGetProducingIndustry(@carLength, @productTypeName);
-		SET @fromSiding = ufnGetIndustrySiding(@fromIndustry, @productTypeName);
-		SET @toIndustry = ufnGetConsumingIndustry(@productTypeName);
-		SET @toSiding = ufnGetIndustrySiding(@toIndustry, @productTypeName);
-		INSERT INTO Shipments VALUES (DEFAULT, @productTypeName, @fromIndustry, @fromSiding, @toIndustry, @toSiding, DEFAULT);
-		#update available lengths for both sidings
-        SET @yardName = ufnGetReturnYard();
-		INSERT INTO Waybills VALUES (MyCarID, LAST_INSERT_ID(), @yardName);
-        #remove temporary tables
+	ELSEIF (MyCarID IN (SELECT CarID FROM Waybills WHERE CarID = MyCarID)) THEN
+		SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'This car is already in service.';
+    ELSE
+		SET @carTypeName = (SELECT CarTypeName
+			FROM RollingStockCars
+			WHERE CarID = MyCarID);
+        SET @productTypeName = ufnGetProductType(@carTypeName);
+        
+        IF (@productTypeName IS NULL) THEN
+			SIGNAL SQLSTATE '45000'
+			SET MESSAGE_TEXT = 'There are no industry orders for this car type on this layout.';
+        ELSE
+			SET @carLength = (SELECT CarLength
+				FROM RollingStockTypes
+				WHERE CarTypeName = @carTypeName);
+            SET @fromIndustry = ufnGetProducingIndustry(@carLength, @productTypeName);
+            SET @toIndustry = ufnGetConsumingIndustry(@carLength, @productTypeName);
+            
+            IF (@fromIndustry IS NULL OR @toIndustry IS NULL) THEN
+				SIGNAL SQLSTATE '45000'
+				SET MESSAGE_TEXT = 'There are no industry orders at this time.';
+			ELSE
+				SET @fromSiding = ufnGetIndustrySiding(@fromIndustry, @productTypeName);
+                SET @toSiding = ufnGetIndustrySiding(@toIndustry, @productTypeName);
+                INSERT INTO Shipments VALUES (DEFAULT, @productTypeName, @fromIndustry, @fromSiding, @toIndustry, @toSiding, DEFAULT);
+                SET @yardName = (SELECT YardName
+					FROM Yards
+					ORDER BY RAND() LIMIT 0, 1);
+				INSERT INTO Waybills VALUES (MyCarID, LAST_INSERT_ID(), @yardName);
+            END IF;
+        END IF;
 	END IF;
 END$$
 DELIMITER ;

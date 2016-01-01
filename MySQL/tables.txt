@@ -473,6 +473,8 @@ CREATE TABLE IF NOT EXISTS RollingStockAtIndustries (
 		ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+#Trigger that changes AvailableLength on insertion/deletion?
+
 #Shipments
 #Declares a shipping order of a product type for pickup at one industry and
 #	delivery to another industry.

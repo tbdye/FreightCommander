@@ -79,19 +79,47 @@ TRUNCATE TABLE Shipments;
 SET FOREIGN_KEY_CHECKS = 1;
 
 #Test ufnGetProductType
-CALL uspClientAddCarToGame('XX', 'Box Car', 'Black River Yard');
-SELECT ufnGetProductType('XX');
-
+SELECT ufnGetProductType('Box Car');
 
 #Test ufnGetProducingIndustry
-SELECT ufnGetProducingIndustry('Garbage');
+SELECT ufnGetProducingIndustry(75, 'Garbage');
 
-#Test ufnGetProducingIndustry
-CALL uspClientAddCarToGame('XX', 'Wood Chip Car', 'Black River Yard');
-SELECT ufnGetProducingIndustry('XX', 'Garbage');
-CALL uspClientRemoveCarFromGame('XX');
-
-#Test
+#Test ufnGetIndustrySiding
 SELECT ufnGetIndustrySiding('MMI Transfer Site 3', 'General Merchandise');
 
-#Test
+#Test ufnGetConsumingIndustry
+SELECT ufnGetConsumingIndustry(65, 'Crates');
+
+#Test uspClientAddCarToService
+CALL uspClientAddCarToGame('AA', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('BB', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('CC', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('DD', 'Wood Chip Car', 'Black River Yard');
+CALL uspClientAddCarToGame('EE', 'Stock Car', 'Black River Yard');
+CALL uspClientAddCarToGame('FF', 'Stock Car', 'Black River Yard');
+CALL uspClientAddCarToService('AA');
+CALL uspClientAddCarToService('BB');
+CALL uspClientAddCarToService('CC');
+CALL uspClientAddCarToService('XX'); -- This car could not be found.
+CALL uspClientAddCarToService('CC'); -- This car is already in service.
+CALL uspClientAddCarToService('DD'); -- There are no industry orders for this car type on this layout.
+CALL uspClientAddCarToService('EE');
+UPDATE IndustrySidings SET AvailableLength = 0 WHERE IndustryName = 'Half Circle Farms' AND SidingNumber = 1;
+CALL uspClientAddCarToService('FF'); -- There are no industry orders at this time.
+UPDATE IndustrySidings SET AvailableLength = 600 WHERE IndustryName = 'Half Circle Farms' AND SidingNumber = 1;
+UPDATE IndustrySidings SET AvailableLength = 0 WHERE IndustryName = 'Palin Interchange' AND SidingNumber = 1;
+CALL uspClientAddCarToService('FF'); -- There are no industry orders at this time.
+UPDATE IndustrySidings SET AvailableLength = 500 WHERE IndustryName = 'Palin Interchange' AND SidingNumber = 1;
+CALL uspClientAddCarToService('FF');
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE Shipments;
+TRUNCATE TABLE Waybills;
+SET FOREIGN_KEY_CHECKS = 1;
+CALL uspClientRemoveCarFromGame('AA');
+CALL uspClientRemoveCarFromGame('BB');
+CALL uspClientRemoveCarFromGame('CC');
+CALL uspClientRemoveCarFromGame('DD');
+CALL uspClientRemoveCarFromGame('EE');
+CALL uspClientRemoveCarFromGame('FF');
+
+#

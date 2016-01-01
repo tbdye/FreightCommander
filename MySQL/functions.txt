@@ -2,17 +2,27 @@
 DROP FUNCTION IF EXISTS ufnGetProductType;
 DELIMITER $$
 CREATE FUNCTION ufnGetProductType (
-	MyCarID VARCHAR(255))
+	MyCarTypeName VARCHAR(255))
 RETURNS VARCHAR(255)
 DETERMINISTIC
 BEGIN
 	DECLARE MyProductTypeName VARCHAR(255);
     
-    SET MyProductTypeName = (SELECT ProductTypeName
-		FROM ProductTypes
-        WHERE CarTypeName = (SELECT CarTypeName
-			FROM RollingStockCars
-			WHERE CarID = MyCarID)
+    SET MyProductTypeName = (SELECT o1.*
+		FROM (SELECT ProductTypeName
+			FROM IndustryProducts
+			WHERE ProductTypeName IN (SELECT ProductTypeName
+				FROM ProductTypes
+				WHERE CarTypeName = MyCarTypeName)
+			AND isProducer = TRUE) o1
+		JOIN (SELECT ProductTypeName
+			FROM IndustryProducts
+			WHERE ProductTypeName IN (SELECT ProductTypeName
+				FROM ProductTypes
+				WHERE CarTypeName = MyCarTypeName)
+			AND isProducer = FALSE) o2
+		WHERE o1.ProductTypeName = o2.ProductTypeName
+		GROUP BY o1.ProductTypeName
 		ORDER BY RAND() LIMIT 0, 1);
     RETURN MyProductTypeName;
 END$$
@@ -29,12 +39,12 @@ DETERMINISTIC
 BEGIN
 	DECLARE MyIndustryName VARCHAR(255);
     
-    DROP TEMPORARY TABLE IF EXISTS IndustriesFilter;
-    CREATE TEMPORARY TABLE IndustriesFilter (
+    DROP TEMPORARY TABLE IF EXISTS P_IndustriesFilter;
+    CREATE TEMPORARY TABLE P_IndustriesFilter (
         IndustryName VARCHAR(255) NOT NULL PRIMARY KEY
 	);
     
-    INSERT INTO IndustriesFilter (IndustryName)
+    INSERT INTO P_IndustriesFilter (IndustryName)
 		SELECT s.IndustryName
         FROM IndustrySidings s
         JOIN IndustryProducts p ON s.IndustryName = p.IndustryName
@@ -62,8 +72,8 @@ BEGIN
         AND p.IsProducer = TRUE
         GROUP BY s.IndustryName;
     
-    DROP TEMPORARY TABLE IF EXISTS IndustriesList;
-    CREATE TEMPORARY TABLE IndustriesList (
+    DROP TEMPORARY TABLE IF EXISTS P_IndustriesList;
+    CREATE TEMPORARY TABLE P_IndustriesList (
 		IndustryID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
         IndustryName VARCHAR(255) NOT NULL
 	);
@@ -74,26 +84,26 @@ BEGIN
 		WHERE p.ProductTypeName = MyProductTypeName
         AND p.IndustryName IN (
 			SELECT IndustryName
-            FROM IndustriesFilter));
+            FROM P_IndustriesFilter));
     SET @maximumActivity = (SELECT MAX(ActivityLevel)
 		FROM IndustryProducts p
         JOIN IndustryActivities a ON p.IndustryName = a.IndustryName
 		WHERE p.ProductTypeName = MyProductTypeName
         AND p.IndustryName IN (
 			SELECT IndustryName
-            FROM IndustriesFilter));
+            FROM P_IndustriesFilter));
     SET @activityLevel = @maximumActivity;
     
     WHILE @activityLevel >= @minimumActivity DO
 		SET @counter = @minimumActivity;
         WHILE @counter <= @activityLevel DO
-            INSERT INTO IndustriesList (IndustryID, IndustryName)
+            INSERT INTO P_IndustriesList (IndustryID, IndustryName)
 				SELECT NULL, p.IndustryName
                 FROM IndustryProducts p
                 JOIN IndustryActivities a ON p.IndustryName = a.IndustryName
                 WHERE p.IndustryName IN (
 					SELECT IndustryName
-                    FROM IndustriesFilter)
+                    FROM P_IndustriesFilter)
 				AND p.ProductTypeName = MyProductTypeName
                 AND p.IsProducer = TRUE
                 AND a.ActivityLevel = @activityLevel;
@@ -102,8 +112,12 @@ BEGIN
 		SET @activityLevel = @activityLevel - 1;
 	END WHILE;
 
-	SET MyIndustryName = (SELECT IndustryName FROM IndustriesList ORDER BY RAND() LIMIT 0, 1);
+	SET MyIndustryName = (SELECT IndustryName
+		FROM P_IndustriesList
+		ORDER BY RAND() LIMIT 0, 1);
     RETURN MyIndustryName;
+	DROP TEMPORARY TABLE IF EXISTS P_IndustriesFilter;
+	DROP TEMPORARY TABLE IF EXISTS P_IndustriesList;
 END$$
 DELIMITER ;
 
@@ -152,31 +166,100 @@ BEGIN
 		FROM SidingsList
         ORDER BY AvailableLength DESC LIMIT 1);
     RETURN MySidingNumber;
+	DROP TEMPORARY TABLE IF EXISTS SidingsList;
 END$$
 DELIMITER ;
 
+#ufnGetConsumingIndustry
 DROP FUNCTION IF EXISTS ufnGetConsumingIndustry;
 DELIMITER $$
 CREATE FUNCTION ufnGetConsumingIndustry (
-	ProductTypeName VARCHAR(255))
+	MyCarLength INT,
+    MyProductTypeName VARCHAR(255))
 RETURNS VARCHAR(255)
 DETERMINISTIC
 BEGIN
-	DECLARE IndustryName VARCHAR(255);
-    SET IndustryName = 'temp';
-    RETURN IndustryName;
-END$$
-DELIMITER ;
-
-DROP FUNCTION IF EXISTS ufnGetReturnYard;
-DELIMITER $$
-CREATE FUNCTION ufnGetReturnYard ()
-RETURNS VARCHAR(255)
-DETERMINISTIC
-BEGIN
-	DECLARE YardName VARCHAR(255);
-    SET YardName = 'temp';
-    RETURN YardName;
+	DECLARE MyIndustryName VARCHAR(255);
+    
+	DROP TEMPORARY TABLE IF EXISTS C_IndustriesFilter;
+    CREATE TEMPORARY TABLE C_IndustriesFilter (
+        IndustryName VARCHAR(255) NOT NULL PRIMARY KEY
+	);
+    
+	INSERT INTO C_IndustriesFilter (IndustryName)
+		SELECT s.IndustryName
+        FROM IndustrySidings s
+        JOIN IndustryProducts p ON s.IndustryName = p.IndustryName
+        WHERE s.AvailableLength >= MyCarLength
+        AND s.IndustryName IN (SELECT IndustryName
+			FROM IndustriesAvailable
+            WHERE IsAvailable = TRUE)
+        AND s.SidingNumber IN (SELECT SidingNumber
+			FROM SidingAssignments
+            WHERE ProductTypeName = MyProductTypeName)
+        AND p.ProductTypeName = MyProductTypeName
+        AND p.IsProducer = FALSE
+        GROUP BY s.IndustryName
+		UNION SELECT s.IndustryName
+        FROM IndustrySidings s
+        JOIN IndustryProducts p ON s.IndustryName = p.IndustryName
+        WHERE s.AvailableLength >= MyCarLength
+		AND s.IndustryName IN (SELECT IndustryName
+			FROM IndustriesAvailable
+            WHERE IsAvailable = TRUE)
+        AND s.IndustryName NOT IN (SELECT IndustryName
+			FROM SidingAssignments
+            WHERE ProductTypeName = MyProductTypeName)
+        AND p.ProductTypeName = MyProductTypeName
+        AND p.IsProducer = FALSE
+        GROUP BY s.IndustryName;
+    
+	DROP TEMPORARY TABLE IF EXISTS C_IndustriesList;
+    CREATE TEMPORARY TABLE C_IndustriesList (
+		IndustryID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        IndustryName VARCHAR(255) NOT NULL
+	);
+    
+	SET @minimumActivity = (SELECT MIN(ActivityLevel)
+		FROM IndustryProducts p
+		JOIN IndustryActivities a ON p.IndustryName = a.IndustryName
+		WHERE p.ProductTypeName = MyProductTypeName
+        AND p.IndustryName IN (
+			SELECT IndustryName
+            FROM C_IndustriesFilter));
+	SET @maximumActivity = (SELECT MAX(ActivityLevel)
+		FROM IndustryProducts p
+        JOIN IndustryActivities a ON p.IndustryName = a.IndustryName
+		WHERE p.ProductTypeName = MyProductTypeName
+        AND p.IndustryName IN (
+			SELECT IndustryName
+            FROM C_IndustriesFilter));
+	SET @activityLevel = @maximumActivity;
+    
+	WHILE @activityLevel >= @minimumActivity DO
+		SET @counter = @minimumActivity;
+        WHILE @counter <= @activityLevel DO
+            INSERT INTO C_IndustriesList (IndustryID, IndustryName)
+				SELECT NULL, p.IndustryName
+                FROM IndustryProducts p
+                JOIN IndustryActivities a ON p.IndustryName = a.IndustryName
+                WHERE p.IndustryName IN (
+					SELECT IndustryName
+                    FROM C_IndustriesFilter)
+				AND p.ProductTypeName = MyProductTypeName
+                AND p.IsProducer = FALSE
+                AND a.ActivityLevel = @activityLevel;
+            SET @counter = @counter + 1;
+		END WHILE;
+		SET @activityLevel = @activityLevel - 1;
+	END WHILE;  
+    
+    SET MyIndustryName = (SELECT IndustryName
+		FROM C_IndustriesList
+		ORDER BY RAND() LIMIT 0, 1);
+    RETURN MyIndustryName;
+	DROP TEMPORARY TABLE IF EXISTS C_IndustriesFilter;
+	DROP TEMPORARY TABLE IF EXISTS C_IndustriesList;
 END$$
 DELIMITER ;
 
