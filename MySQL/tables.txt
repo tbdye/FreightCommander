@@ -473,7 +473,35 @@ CREATE TABLE IF NOT EXISTS RollingStockAtIndustries (
 		ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-#Trigger that changes AvailableLength on insertion/deletion?
+#Trigger to decrease AvailableLength for IndustrySidings as RollingStockCars are added
+DROP TRIGGER IF EXISTS RollingStockAtIndustriesInsertTrigger;
+DELIMITER $$
+CREATE TRIGGER RollingStockAtIndustriesInsertTrigger BEFORE INSERT ON RollingStockAtIndustries
+	FOR EACH ROW
+	BEGIN
+		SET @carLength = (SELECT CarLength
+			FROM RollingStockTypes
+            WHERE CarTypeName = (SELECT CarTypeName
+				FROM RollingStockCars
+                WHERE CarID = NEW.CarID));
+        UPDATE IndustrySidings SET AvailableLength = AvailableLength - @carLength WHERE IndustryName = NEW.IndustryName AND SidingNumber = NEW.SidingNumber;
+	END$$
+DELIMITER ;
+
+#Trigger to increase AvailableLength for IndustrySidings as RollingStockCars are removed
+DROP TRIGGER IF EXISTS RollingStockAtIndustriesDeleteTrigger;
+DELIMITER $$
+CREATE TRIGGER RollingStockAtIndustriesDeleteTrigger AFTER DELETE ON RollingStockAtIndustries
+	FOR EACH ROW
+	BEGIN
+		SET @carLength = (SELECT CarLength
+			FROM RollingStockTypes
+            WHERE CarTypeName = (SELECT CarTypeName
+				FROM RollingStockCars
+                WHERE CarID = OLD.CarID));
+        UPDATE IndustrySidings SET AvailableLength = AvailableLength + @carLength WHERE IndustryName = OLD.IndustryName AND SidingNumber = OLD.SidingNumber;
+	END$$
+DELIMITER ;
 
 #Shipments
 #Declares a shipping order of a product type for pickup at one industry and

@@ -122,4 +122,56 @@ CALL uspClientRemoveCarFromGame('DD');
 CALL uspClientRemoveCarFromGame('EE');
 CALL uspClientRemoveCarFromGame('FF');
 
+#uspClientRemoveCarFromService
+CALL uspClientAddCarToGame('AA', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('BB', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('CC', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('DD', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToService('AA');
+CALL uspClientAddCarToService('BB');
+CALL uspClientAddCarToService('CC');
+CALL uspClientRemoveCarFromService('AA');
+CALL uspClientRemoveCarFromService('BB');
+CALL uspClientRemoveCarFromService('XX'); -- This car could not be found.
+CALL uspClientRemoveCarFromService('DD'); -- This car is not in service.
+SET @shippingNo = (SELECT ShipmentID FROM Waybills WHERE CarID = 'CC');
+INSERT INTO ShipmentsLoaded VALUES (@shippingNo, DEFAULT);
+CALL uspClientRemoveCarFromService('CC'); -- Car has open waybill and cannot be removed.
+INSERT INTO ShipmentsUnloaded VALUES (@shippingNo, DEFAULT);
+CALL uspClientRemoveCarFromService('CC');
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE Shipments;
+TRUNCATE TABLE ShipmentsLoaded;
+TRUNCATE TABLE ShipmentsUnloaded;
+SET FOREIGN_KEY_CHECKS = 1;
+CALL uspClientRemoveCarFromGame('AA');
+CALL uspClientRemoveCarFromGame('BB');
+CALL uspClientRemoveCarFromGame('CC');
+CALL uspClientRemoveCarFromGame('DD');
+
+#uspClientModifyCarInService
+CALL uspClientAddCarToGame('AA', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('BB', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('CC', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('DD', 'Stock Car', 'Black River Yard');
+CALL uspClientAddCarToService('AA');
+CALL uspClientAddCarToService('CC');
+CALL uspClientModifyCarInService('AA', 'BB');
+CALL uspClientRemoveCarFromService('AA'); -- This car is not in service.
+CALL uspClientModifyCarInService('BB', 'AA');
+CALL uspClientRemoveCarFromService('BB'); -- This car is not in service.
+CALL uspClientModifyCarInService('XX', 'BB'); -- Originating carID not found.
+CALL uspClientModifyCarInService('AA', 'XX'); -- Replacement carID not found.
+CALL uspClientModifyCarInService('AA', 'CC'); -- Replacement carID has existing waybill.
+CALL uspClientModifyCarInService('AA', 'DD'); -- Replacement car type does not match original car type.
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE Shipments;
+SET FOREIGN_KEY_CHECKS = 1;
+CALL uspClientRemoveCarFromService('AA');
+CALL uspClientRemoveCarFromService('CC');
+CALL uspClientRemoveCarFromGame('AA');
+CALL uspClientRemoveCarFromGame('BB');
+CALL uspClientRemoveCarFromGame('CC');
+CALL uspClientRemoveCarFromGame('DD');
+
 #
