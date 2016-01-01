@@ -473,35 +473,30 @@ CREATE TABLE IF NOT EXISTS RollingStockAtIndustries (
 		ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-#Trigger to decrease AvailableLength for IndustrySidings as RollingStockCars are added
-DROP TRIGGER IF EXISTS RollingStockAtIndustriesInsertTrigger;
-DELIMITER $$
-CREATE TRIGGER RollingStockAtIndustriesInsertTrigger BEFORE INSERT ON RollingStockAtIndustries
-	FOR EACH ROW
-	BEGIN
-		SET @carLength = (SELECT CarLength
-			FROM RollingStockTypes
-            WHERE CarTypeName = (SELECT CarTypeName
-				FROM RollingStockCars
-                WHERE CarID = NEW.CarID));
-        UPDATE IndustrySidings SET AvailableLength = AvailableLength - @carLength WHERE IndustryName = NEW.IndustryName AND SidingNumber = NEW.SidingNumber;
-	END$$
-DELIMITER ;
-
+/*
 #Trigger to increase AvailableLength for IndustrySidings as RollingStockCars are removed
 DROP TRIGGER IF EXISTS RollingStockAtIndustriesDeleteTrigger;
 DELIMITER $$
 CREATE TRIGGER RollingStockAtIndustriesDeleteTrigger AFTER DELETE ON RollingStockAtIndustries
 	FOR EACH ROW
 	BEGIN
-		SET @carLength = (SELECT CarLength
-			FROM RollingStockTypes
-            WHERE CarTypeName = (SELECT CarTypeName
-				FROM RollingStockCars
-                WHERE CarID = OLD.CarID));
-        UPDATE IndustrySidings SET AvailableLength = AvailableLength + @carLength WHERE IndustryName = OLD.IndustryName AND SidingNumber = OLD.SidingNumber;
+		#I know OLD.CarID, OLD.IndustryName, OLD.SidingNumber
+		#The old siding number may not match the shipping instructions.
+		#I also have proper CarID and ShippingID from Waybill and load nofication from ShippingID in ShipmentsLoaded.
+		#Do I have a loaded car?
+		#Is the car leaving the correct car?
+		#I want to apply trigger to correct, loaded cars and ignore all others.  Trigger must only be applied once per shipping order.
+		IF (OLD.CarID IN (SELECT CarID FROM Shipments s JOIN Waybills w ON s.ShipmentID = w.ShipmentID WHERE w.CarID = OLD.CarID)) THEN
+			SET @carLength = (SELECT CarLength
+				FROM RollingStockTypes
+				WHERE CarTypeName = (SELECT CarTypeName
+					FROM RollingStockCars
+					WHERE CarID = OLD.CarID));
+			UPDATE IndustrySidings SET AvailableLength = AvailableLength + @carLength WHERE IndustryName = OLD.IndustryName AND SidingNumber = OLD.SidingNumber;
+        END IF;
 	END$$
 DELIMITER ;
+*/
 
 #Shipments
 #Declares a shipping order of a product type for pickup at one industry and
