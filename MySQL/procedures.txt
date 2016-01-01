@@ -137,6 +137,8 @@ BEGIN
 				SET @fromSiding = ufnGetIndustrySiding(@fromIndustry, @productTypeName);
                 SET @toSiding = ufnGetIndustrySiding(@toIndustry, @productTypeName);
                 INSERT INTO Shipments VALUES (DEFAULT, @productTypeName, @fromIndustry, @fromSiding, @toIndustry, @toSiding, DEFAULT);
+                UPDATE IndustrySidings SET AvailableLength = AvailableLength - @carLength WHERE IndustryName = @fromIndustry AND SidingNumber = @fromSiding;
+                
                 SET @yardName = (SELECT YardName
 					FROM Yards
 					ORDER BY RAND() LIMIT 0, 1);
@@ -160,14 +162,37 @@ BEGIN
 		SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'This car is not in service.';
     ELSE
-		SET @shipmentID = (SELECT ShipmentID FROM Waybills WHERE CarID = MyCarID);
-        SET @canRemoveWaybill = (@shipmentID NOT IN (SELECT ShipmentID FROM ShipmentsLoaded WHERE ShipmentID = @shipmentID)
-				AND @shipmentID NOT IN (SELECT ShipmentID FROM ShipmentsUnloaded WHERE ShipmentID = @shipmentID))
-			OR (@shipmentID IN (SELECT ShipmentID FROM ShipmentsLoaded WHERE ShipmentID = @shipmentID)
-				AND @shipmentID IN (SELECT ShipmentID FROM ShipmentsUnloaded WHERE ShipmentID = @shipmentID));
+		SET @shipmentID = (SELECT ShipmentID
+			FROM Waybills
+            WHERE CarID = MyCarID);
+        SET @canRemoveWaybill = (@shipmentID NOT IN (SELECT ShipmentID
+					FROM ShipmentsLoaded
+                    WHERE ShipmentID = @shipmentID)
+				AND @shipmentID NOT IN (SELECT ShipmentID
+					FROM ShipmentsUnloaded
+                    WHERE ShipmentID = @shipmentID))
+			OR (@shipmentID IN (SELECT ShipmentID
+					FROM ShipmentsLoaded
+                    WHERE ShipmentID = @shipmentID)
+				AND @shipmentID IN (SELECT ShipmentID
+					FROM ShipmentsUnloaded
+                    WHERE ShipmentID = @shipmentID));
 		
         IF (@canRemoveWaybill) THEN
-			DELETE FROM Waybills WHERE CarID = MyCarID;
+			DELETE FROM Waybills WHERE CarID = MyCarID;      
+
+			SET @carLength = (SELECT CarLength
+				FROM RollingStockTypes
+				WHERE CarTypeName = (SELECT CarTypeName
+					FROM RollingStockCars
+					WHERE CarID = MyCarID));
+            SET @fromIndustry = (SELECT FromIndustry
+				FROM Shipments
+                WHERE ShipmentID = @shipmentID);
+            SET @fromSiding = (SELECT FromSiding
+				FROM Shipments
+                WHERE ShipmentID = @shipmentID);
+            UPDATE IndustrySidings SET AvailableLength = AvailableLength + @carLength WHERE IndustryName = @fromIndustry AND SidingNumber = @fromSiding;
 		ELSE
 			SIGNAL SQLSTATE '45000'
 			SET MESSAGE_TEXT = 'Car has open waybill and cannot be removed.';
@@ -210,6 +235,7 @@ BEGIN
 END$$
 DELIMITER ;
 
+#
 DROP PROCEDURE IF EXISTS uspPrivateRemoveCarFromIndustrySiding;
 DELIMITER $$
 CREATE PROCEDURE uspPrivateRemoveCarFromIndustrySiding (
@@ -387,7 +413,10 @@ DELIMITER $$
 CREATE PROCEDURE uspClientServiceIndustry (
 	IN CarID VARCHAR(255))
 BEGIN
-	IF (CarID NOT IN (SELECT CarID FROM RollingStockCars WHERE CarID = CarID)) THEN
+	#ShipmentsLoaded
+	#Trigger to free AvailableLength for IndustrySidings as RollingStockCars are loaded
+	#This may be better to be in the uspLoadIndustry than as a trigger.
+		IF (CarID NOT IN (SELECT CarID FROM RollingStockCars WHERE CarID = CarID)) THEN
 		SIGNAL SQLSTATE '45000'
 		SET MESSAGE_TEXT = 'Car not found.';
 	ELSE

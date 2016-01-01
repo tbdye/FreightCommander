@@ -1,4 +1,4 @@
-#ufnGetProductType
+#ufnGetProductType('CarTypeName')
 DROP FUNCTION IF EXISTS ufnGetProductType;
 DELIMITER $$
 CREATE FUNCTION ufnGetProductType (
@@ -24,11 +24,11 @@ BEGIN
 		WHERE o1.ProductTypeName = o2.ProductTypeName
 		GROUP BY o1.ProductTypeName
 		ORDER BY RAND() LIMIT 0, 1);
-    RETURN MyProductTypeName;
+		RETURN MyProductTypeName;
 END$$
 DELIMITER ;
 
-#ufnGetProducingIndustry
+#ufnGetProducingIndustry(CarLength, 'ProductTypeName')
 DROP FUNCTION IF EXISTS ufnGetProducingIndustry;
 DELIMITER $$
 CREATE FUNCTION ufnGetProducingIndustry (
@@ -115,13 +115,13 @@ BEGIN
 	SET MyIndustryName = (SELECT IndustryName
 		FROM P_IndustriesList
 		ORDER BY RAND() LIMIT 0, 1);
-    RETURN MyIndustryName;
+	RETURN MyIndustryName;
 	DROP TEMPORARY TABLE IF EXISTS P_IndustriesFilter;
 	DROP TEMPORARY TABLE IF EXISTS P_IndustriesList;
 END$$
 DELIMITER ;
 
-#ufnGetIndustrySiding
+#ufnGetIndustrySiding('IndustryName', 'ProductTypeName')
 DROP FUNCTION IF EXISTS ufnGetIndustrySiding;
 DELIMITER $$
 CREATE FUNCTION ufnGetIndustrySiding (
@@ -170,7 +170,7 @@ BEGIN
 END$$
 DELIMITER ;
 
-#ufnGetConsumingIndustry
+#ufnGetConsumingIndustry(CarLength, 'ProductTypeName')
 DROP FUNCTION IF EXISTS ufnGetConsumingIndustry;
 DELIMITER $$
 CREATE FUNCTION ufnGetConsumingIndustry (
@@ -204,7 +204,7 @@ BEGIN
         FROM IndustrySidings s
         JOIN IndustryProducts p ON s.IndustryName = p.IndustryName
         WHERE s.AvailableLength >= MyCarLength
-		AND s.IndustryName IN (SELECT IndustryName
+        AND s.IndustryName IN (SELECT IndustryName
 			FROM IndustriesAvailable
             WHERE IsAvailable = TRUE)
         AND s.IndustryName NOT IN (SELECT IndustryName
@@ -263,15 +263,35 @@ BEGIN
 END$$
 DELIMITER ;
 
+#ufnGetCarModuleName('CarID')
 DROP FUNCTION IF EXISTS ufnGetCarModuleName;
 DELIMITER $$
 CREATE FUNCTION ufnGetCarModuleName (
-	CarID INT)
+	MyCarID VARCHAR(255))
 RETURNS VARCHAR(255)
 DETERMINISTIC
 BEGIN
-	DECLARE ModuleName VARCHAR(255);
-    SET ModuleName = 'temp';
-    RETURN ModuleName;
+	DECLARE MyModuleName VARCHAR(255);
+    IF (MyCarID IN (SELECT CarID FROM ConsistedCars WHERE CarID = MyCarID)) THEN
+		SET MyModuleName = (SELECT ModuleName
+			FROM TrainLocations
+            WHERE TrainNumber = (SELECT TrainNumber
+				FROM ConsistedCars
+                WHERE CarID = MyCarID));
+    ELSEIF (MyCarID IN (SELECT CarID FROM RollingStockAtYards WHERE CarID = MyCarID)) THEN
+		SET MyModuleName = (SELECT ModuleName
+			FROM Yards
+            WHERE YardName = (SELECT YardName
+				FROM RollingStockAtYards
+                WHERE CarID = MyCarID));
+    ELSE
+		SET MyModuleName = (SELECT ModuleName
+			FROM Industries
+            WHERE IndustryName = (SELECT IndustryName
+				FROM RollingStockAtIndustries
+                WHERE CarID = MyCarID));
+	END IF;
+
+	RETURN MyModuleName;
 END$$
 DELIMITER ;

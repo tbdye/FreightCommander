@@ -174,4 +174,22 @@ CALL uspClientRemoveCarFromGame('BB');
 CALL uspClientRemoveCarFromGame('CC');
 CALL uspClientRemoveCarFromGame('DD');
 
-#
+#ufnGetCarModuleName('CarID')
+CALL uspClientAddCarToGame('AA', 'Box Car', 'Black River Yard');
+DELETE FROM RollingStockAtYards WHERE CarID = 'AA';
+CALL uspClientAddCarToGame('BB', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('CC', 'Box Car', 'Black River Yard');
+DELETE FROM RollingStockAtYards WHERE CarID = 'CC';
+INSERT INTO RollingStockAtIndustries VALUES ('CC', 'Half Circle Farms', 1, DEFAULT);
+CALL uspClientAddCarToGame('DD', 'Box Car', 'Black River Yard');
+CALL uspClientAddTrain(1, 1234, 1234, 'Black River Yard');
+DELETE FROM RollingStockAtYards WHERE CarID = 'DD';
+INSERT INTO ConsistedCars VALUES (1, 'DD', DEFAULT);
+UPDATE TrainLocations SET ModuleName = 'Chesterfield' WHERE TrainNumber = 1;
+SELECT ufnGetCarModuleName('AA'), ufnGetCarModuleName('BB'), ufnGetCarModuleName('CC'), ufnGetCarModuleName('DD'); -- NULL, Black River Yard, 180 Farms, Chesterfield
+CALL uspClientRemoveCarFromGame('AA');
+CALL uspClientRemoveCarFromGame('BB');
+CALL uspClientRemoveCarFromGame('CC');
+DELETE FROM ConsistedCars WHERE CarID = 'DD';
+CALL uspClientRemoveTrain(1);
+CALL uspClientRemoveCarFromGame('DD');
