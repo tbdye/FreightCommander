@@ -12,7 +12,7 @@ BEGIN
         SET MESSAGE_TEXT = 'This train already exists.';
 	ELSEIF (MyModuleName NOT IN (SELECT ModuleName FROM ModulesAvailable WHERE ModuleName = MyModuleName)) THEN
 		SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'This module does not exist or is not active.';
+        SET MESSAGE_TEXT = 'This location does not exist or is not active.';
 	ELSE
 		INSERT INTO Trains VALUES (MyTrainNumber, MyLeadPower, MyDCCAddress, DEFAULT);
 		INSERT INTO TrainLocations VALUES (MyTrainNumber, MyModuleName, DEFAULT);
@@ -137,8 +137,10 @@ BEGIN
 				SET @fromSiding = ufnGetIndustrySiding(@fromIndustry, @productTypeName);
                 SET @toSiding = ufnGetIndustrySiding(@toIndustry, @productTypeName);
                 INSERT INTO Shipments VALUES (DEFAULT, @productTypeName, @fromIndustry, @fromSiding, @toIndustry, @toSiding, DEFAULT);
+                SET SQL_SAFE_UPDATES = 0;
                 UPDATE IndustrySidings SET AvailableLength = AvailableLength - @carLength WHERE IndustryName = @fromIndustry AND SidingNumber = @fromSiding;
-                
+                SET SQL_SAFE_UPDATES = 1;
+				
                 SET @yardName = (SELECT YardName
 					FROM Yards
 					ORDER BY RAND() LIMIT 0, 1);
@@ -192,7 +194,9 @@ BEGIN
             SET @fromSiding = (SELECT FromSiding
 				FROM Shipments
                 WHERE ShipmentID = @shipmentID);
-            UPDATE IndustrySidings SET AvailableLength = AvailableLength + @carLength WHERE IndustryName = @fromIndustry AND SidingNumber = @fromSiding;
+            SET SQL_SAFE_UPDATES = 0;
+			UPDATE IndustrySidings SET AvailableLength = AvailableLength + @carLength WHERE IndustryName = @fromIndustry AND SidingNumber = @fromSiding;
+			SET SQL_SAFE_UPDATES = 1;
 		ELSE
 			SIGNAL SQLSTATE '45000'
 			SET MESSAGE_TEXT = 'Car has open waybill and cannot be removed.';
@@ -235,34 +239,70 @@ BEGIN
 END$$
 DELIMITER ;
 
-#
-DROP PROCEDURE IF EXISTS uspPrivateRemoveCarFromIndustrySiding;
+#uspClientAddCrewToTrain(TrainNumber, 'CrewName')
+DROP PROCEDURE IF EXISTS uspClientAddCrewToTrain;
 DELIMITER $$
-CREATE PROCEDURE uspPrivateRemoveCarFromIndustrySiding (
-	IN CarID VARCHAR(255))
+CREATE PROCEDURE uspClientAddCrewToTrain (
+	IN MyTrainNumber INT,
+    IN MyCrewName VARCHAR(255))
 BEGIN
-    SET @industryName = (SELECT IndustryName FROM RollingStockAtIndustries WHERE CarID = CarID);
-    SET @sidingNumber = (SELECT SidingNumber FROM RollingStockAtIndustries WHERE CarID = CarID);
-    SET @carLength = (SELECT CarLength FROM RollingStockTypes WHERE CarTypeName = (SELECT CarTypeName FROM RollingStockCars WHERE CarID = CarID));
-    DELETE FROM RollingStockAtIndustries WHERE CarID = CarID;
-	UPDATE IndustrySidings SET AvailableLength = (AvailableLength + @carLength) WHERE IndustryName = @industryName AND SidingNumber = @sidingNumber;
+	IF (MyTrainNumber NOT IN (SELECT TrainNumber FROM Trains WHERE TrainNumber = MyTrainNumber)) THEN
+		SIGNAL SQLSTATE '45000'
+		SET MESSAGE_TEXT = 'This train could not be found.';
+	ELSEIF (MyCrewName IN (SELECT CrewName from TrainCrews WHERE CrewName = MyCrewName)) THEN
+		SIGNAL SQLSTATE '45000'
+		SET MESSAGE_TEXT = 'This crew is already assigned to another train.';
+	ELSE
+		INSERT INTO TrainCrews VALUES (MyTrainNumber, MyCrewName, DEFAULT);
+	END IF;
 END$$
 DELIMITER ;
 
-DROP PROCEDURE IF EXISTS uspPrivateAddCarToIndustrySiding;
+#uspClientRemoveCrewFromTrain(TrainNumber)
+DROP PROCEDURE IF EXISTS uspClientRemoveCrewFromTrain;
 DELIMITER $$
-CREATE PROCEDURE uspPrivateAddCarToIndustrySiding (
-	IN CarID VARCHAR(255),
-    IN IndustryName VARCHAR(255),
-    IN SidingNumber INT)
+CREATE PROCEDURE uspClientRemoveCrewFromTrain (
+	IN MyTrainNumber INT)
 BEGIN
-	SET @carLength = (SELECT CarLength FROM RollingStockTypes WHERE CarTypeName = (SELECT CarTypeName FROM RollingStockCars WHERE CarID = CarID));
-	INSERT INTO RollingStockAtIndustries VALUES (CarID, IndustryName, SidingNumber, DEFAULT);
-    UPDATE IndustrySidings SET AvailableLength = (AvailableLength - @carLength) WHERE IndustryName = IndustryName AND SidingNumber = SidingNumber;
+	IF (MyTrainNumber NOT IN (SELECT TrainNumber FROM Trains WHERE TrainNumber = MyTrainNumber)) THEN
+		SIGNAL SQLSTATE '45000'
+		SET MESSAGE_TEXT = 'This train could not be found.';
+	ELSEIF (MyTrainNumber NOT IN (SELECT TrainNumber FROM TrainCrews WHERE TrainNumber = MyTrainNumber)) THEN
+		SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'This train is not assigned a crew.';
+	ELSE
+		DELETE FROM TrainCrews WHERE TrainNumber = MyTrainNumber;
+	END IF;
 END$$
 DELIMITER ;
 
-#
+#uspClientMoveTrain(TrainNumber, 'ModuleName')
+DROP PROCEDURE IF EXISTS uspClientMoveTrain;
+DELIMITER $$
+CREATE PROCEDURE uspClientMoveTrain (
+	IN MyTrainNumber INT,
+    IN MyModuleName VARCHAR(255))
+BEGIN
+	CASE
+		WHEN (MyTrainNumber NOT IN (SELECT TrainNumber FROM Trains WHERE TrainNumber = MyTrainNumber)) THEN
+			SIGNAL SQLSTATE '45000'
+			SET MESSAGE_TEXT = 'This train could not be found.';
+		WHEN (MyModuleName NOT IN (SELECT ModuleName FROM ModulesAvailable WHERE ModuleName = MyModuleName)) THEN
+			SIGNAL SQLSTATE '45000'
+			SET MESSAGE_TEXT = 'This location does not exist or is not active.';
+		WHEN (MyTrainNumber NOT IN (SELECT TrainNumber FROM TrainCrews WHERE TrainNumber = MyTrainNumber)) THEN
+			SIGNAL SQLSTATE '45000'
+			SET MESSAGE_TEXT = 'This train is not crewed and cannot move.';
+		WHEN (MyModuleName IN (SELECT ModuleName FROM TrainLocations WHERE TrainNumber = MyTrainNumber)) THEN
+			SIGNAL SQLSTATE '45000'
+			SET MESSAGE_TEXT = 'The train was already at that location.';
+		ELSE
+			UPDATE TrainLocations SET ModuleName = MyModuleName WHERE TrainNumber = MyTrainNumber;
+	END CASE;
+END$$
+DELIMITER ;
+
+#uspClientMoveCarToTrain(TrainNumber, 'CarID')
 DROP PROCEDURE IF EXISTS uspClientMoveCarToTrain;
 DELIMITER $$
 CREATE PROCEDURE uspClientMoveCarToTrain (
@@ -272,168 +312,213 @@ BEGIN
 	CASE
 		WHEN (MyTrainNumber NOT IN (SELECT TrainNumber FROM Trains WHERE TrainNumber = MyTrainNumber)) THEN
 			SIGNAL SQLSTATE '45000'
-			SET MESSAGE_TEXT = 'Train not found';
+			SET MESSAGE_TEXT = 'This train could not be found.';
 		WHEN (MyCarID NOT IN (SELECT CarID FROM RollingStockCars WHERE CarID = MyCarID)) THEN
 			SIGNAL SQLSTATE '45000'
-			SET MESSAGE_TEXT = 'Car not found.';
-		WHEN (((SELECT ModuleName FROM TrainLocations WHERE TrainNumber = MyTrainNumber) <> ufnGetCarModuleName(MyCarID))) THEN
+			SET MESSAGE_TEXT = 'This car could not be found.';
+		WHEN (MyCarID IN (SELECT CarID FROM ConsistedCars WHERE TrainNumber = MyTrainNumber AND CarID = MyCarID)) THEN
 			SIGNAL SQLSTATE '45000'
-			SET MESSAGE_TEXT = 'Train/Car location mismatch';
+			SET MESSAGE_TEXT = 'This car is already in your train.';
+        WHEN ((SELECT ModuleName FROM TrainLocations WHERE TrainNumber = MyTrainNumber) <> ufnGetCarModuleName(MyCarID)) THEN
+			SIGNAL SQLSTATE '45000'
+			SET MESSAGE_TEXT = 'This car is not in the same location as the train.';
 		WHEN (MyCarID IN (SELECT CarID FROM RollingStockAtYards WHERE CarID = MyCarID)) THEN
 			INSERT INTO ConsistedCars VALUES (MyTrainNumber, MyCarID, DEFAULT);
 			DELETE FROM RollingStockAtYards WHERE CarID = MyCarID;
 		WHEN (MyCarID IN (SELECT CarID FROM RollingStockAtIndustries WHERE CarID = MyCarID)) THEN
-			INSERT INTO ConsistedCars VALUES (MyTrainNumber, MyCarID, DEFAULT);
-			CALL uspPrivateRemoveCarFromIndustrySiding(MyCarID);
+            IF (MyTrainNumber NOT IN (SELECT TrainNumber FROM TrainCrews WHERE TrainNumber = MyTrainNumber)) THEN
+				SIGNAL SQLSTATE '45000'
+				SET MESSAGE_TEXT = 'This train is not crewed and cannot move.';
+			ELSE
+				INSERT INTO ConsistedCars VALUES (MyTrainNumber, MyCarID, DEFAULT);
+				DELETE FROM RollingStockAtIndustries WHERE CarID = MyCarID;
+			END IF;
 		ELSE
 			SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Unable to locate car.';
+			SET MESSAGE_TEXT = 'This car is not available.';
 	END CASE;
 END$$
 DELIMITER ;
 
+#uspClientMoveCarFromTrainToYard(TrainNumber, 'CarID', 'YardName')
 DROP PROCEDURE IF EXISTS uspClientMoveCarFromTrainToYard;
 DELIMITER $$
 CREATE PROCEDURE uspClientMoveCarFromTrainToYard (
-	IN TrainNumber INT,
-    IN CarID VARCHAR(255),
-    IN YardName VARCHAR(255))
+	IN MyTrainNumber INT,
+    IN MyCarID VARCHAR(255),
+    IN MyYardName VARCHAR(255))
 BEGIN
 	CASE
-		WHEN (TrainNumber NOT IN (SELECT TrainNumber FROM Trains WHERE TrainNumber = TrainNumber)) THEN
+		WHEN (MyTrainNumber NOT IN (SELECT TrainNumber FROM Trains WHERE TrainNumber = MyTrainNumber)) THEN
 			SIGNAL SQLSTATE '45000'
-			SET MESSAGE_TEXT = 'Train not found';
-		WHEN (CarID NOT IN (SELECT CarID FROM RollingStockCars WHERE CarID = CarID)) THEN
+			SET MESSAGE_TEXT = 'This train could not be found.';
+		WHEN (MyCarID NOT IN (SELECT CarID FROM RollingStockCars WHERE CarID = MyCarID)) THEN
 			SIGNAL SQLSTATE '45000'
-			SET MESSAGE_TEXT = 'Car not found.';
-		WHEN (YardName NOT IN (SELECT YardName FROM Yards WHERE YardName = YardName)) THEN
+			SET MESSAGE_TEXT = 'This car could not be found.';
+		WHEN (MyCarID NOT IN (SELECT CarID FROM ConsistedCars WHERE TrainNumber = MyTrainNumber AND CarID = MyCarID)) THEN
+			SIGNAL SQLSTATE '45000'
+			SET MESSAGE_TEXT = 'This car is not in your train.';
+		WHEN (MyYardName NOT IN (SELECT YardName FROM Yards WHERE YardName = MyYardName)) THEN
 			SIGNAL SQLSTATE '45000'
 			SET MESSAGE_TEXT = 'This yard does not exist.';
-		WHEN ((SELECT ModuleName FROM TrainLocations WHERE TrainNumber = TrainNumber)
-			<> (SELECT ModuleName FROM Yards WHERE YardName = YardName)) THEN
+        WHEN ((SELECT ModuleName FROM TrainLocations WHERE TrainNumber = MyTrainNumber)
+				<> (SELECT ModuleName FROM Yards WHERE YardName = MyYardName)) THEN
 			SIGNAL SQLSTATE '45000'
 			SET MESSAGE_TEXT = 'The train cannot drop off the car at the yard from this location.';
 		ELSE
-			DELETE FROM ConsistedCars WHERE TrainNumber = TrainNumber AND CarID = CarID;
-			INSERT INTO RollingStockAtYards VALUES (CarID, Destination, DEFAULT);
+			DELETE FROM ConsistedCars WHERE TrainNumber = MyTrainNumber AND CarID = MyCarID;
+			INSERT INTO RollingStockAtYards VALUES (MyCarID, MyYardName, DEFAULT);
 	END CASE;
 END$$
 DELIMITER ;
 
+#uspClientMoveCarFromTrainToIndustry(TrainNumber, 'CarID', 'IndustryName', SidingNumber)
 DROP PROCEDURE IF EXISTS uspClientMoveCarFromTrainToIndustry;
 DELIMITER $$
 CREATE PROCEDURE uspClientMoveCarFromTrainToIndustry (
-	IN TrainNumber INT,
-    IN CarID VARCHAR(255),
-    IN IndustryName VARCHAR(255),
-    IN SidingNumber INT)
+	IN MyTrainNumber INT,
+    IN MyCarID VARCHAR(255),
+    IN MyIndustryName VARCHAR(255),
+    IN MySidingNumber INT)
 BEGIN
 	CASE
-		WHEN (TrainNumber NOT IN (SELECT TrainNumber FROM Trains WHERE TrainNumber = TrainNumber)) THEN
+		WHEN (MyTrainNumber NOT IN (SELECT TrainNumber FROM Trains WHERE TrainNumber = MyTrainNumber)) THEN
 			SIGNAL SQLSTATE '45000'
-			SET MESSAGE_TEXT = 'Train not found';
-		WHEN (CarID NOT IN (SELECT CarID FROM RollingStockCars WHERE CarID = CarID)) THEN
+			SET MESSAGE_TEXT = 'This train could not be found.';
+		WHEN (MyCarID NOT IN (SELECT CarID FROM RollingStockCars WHERE CarID = MyCarID)) THEN
 			SIGNAL SQLSTATE '45000'
-			SET MESSAGE_TEXT = 'Car not found.';
-		WHEN (IndustryName NOT IN (SELECT IndustryName FROM IndustriesAvailable WHERE IndustryName = IndustryName)) THEN
+			SET MESSAGE_TEXT = 'This car could not be found.';
+		WHEN (MyCarID NOT IN (SELECT CarID FROM ConsistedCars WHERE TrainNumber = MyTrainNumber AND CarID = MyCarID)) THEN
+			SIGNAL SQLSTATE '45000'
+			SET MESSAGE_TEXT = 'This car is not in your train.';
+		WHEN (MyIndustryName NOT IN (SELECT IndustryName FROM IndustriesAvailable WHERE IndustryName = MyIndustryName)) THEN
 			SIGNAL SQLSTATE '45000'
 			SET MESSAGE_TEXT = 'This industry does not exist or is not available.';
-		WHEN (SidingNumber NOT IN (SELECT SidingNumber FROM IndustrySidings WHERE IndustryName = IndustryName AND SidingNumber = SidingNumber)) THEN
+		WHEN (MySidingNumber NOT IN (SELECT SidingNumber FROM IndustrySidings WHERE IndustryName = MyIndustryName AND SidingNumber = MySidingNumber)) THEN
 			SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'This siding does not exist at this industry.';
-		WHEN ((SELECT ModuleName FROM TrainLocations WHERE TrainNumber = TrainNumber)
-			<> (SELECT ModuleName FROM Industries WHERE IndustryName = IndustryName)) THEN
+		WHEN (MyTrainNumber NOT IN (SELECT TrainNumber FROM TrainCrews WHERE TrainNumber = MyTrainNumber)) THEN
+			SIGNAL SQLSTATE '45000'
+			SET MESSAGE_TEXT = 'This train is not crewed and cannot move.';
+		WHEN ((SELECT ModuleName FROM TrainLocations WHERE TrainNumber = MyTrainNumber)
+				<> (SELECT ModuleName FROM Industries WHERE IndustryName = MyIndustryName)) THEN
 			SIGNAL SQLSTATE '45000'
 			SET MESSAGE_TEXT = 'The train cannot drop off the car at the industry from this location.';
 		ELSE
-			DELETE FROM ConsistedCars WHERE TrainNumber = TrainNumber and CarID = CarID;
-			CALL uspPrivateAddCarToIndustrySiding(CarID, IndustryName, SidingNumber);
+			DELETE FROM ConsistedCars WHERE TrainNumber = MyTrainNumber and CarID = MyCarID;
+			INSERT INTO RollingStockAtIndustries VALUES (MyCarID, MyIndustryName, MySidingNumber, DEFAULT);
 	END CASE;
 END$$
 DELIMITER ;
 
-DROP PROCEDURE IF EXISTS uspClientAddCrewToTrain;
-DELIMITER $$
-CREATE PROCEDURE uspClientAddCrewToTrain (
-	IN TrainNumber INT,
-    IN CrewName VARCHAR(255))
-BEGIN
-	IF (TrainNumber NOT IN (SELECT TrainNumber FROM Trains WHERE TrainNumber = TrainNumber)) THEN
-		SIGNAL SQLSTATE '45000'
-		SET MESSAGE_TEXT = 'TrainNumber does not exist.';
-	ELSEIF (CrewName IN (SELECT CrewName from TrainCrews WHERE CrewName = CrewName)) THEN
-		SIGNAL SQLSTATE '45000'
-		SET MESSAGE_TEXT = 'Crew is already assigned to a train.';
-	ELSE
-		INSERT INTO TrainCrews VALUES (TrainNumber, CrewName, DEFAULT);
-	END IF;
-END$$
-DELIMITER ;
-
-DROP PROCEDURE IF EXISTS uspClientRemoveCrewFromTrain;
-DELIMITER $$
-CREATE PROCEDURE uspClientRemoveCrewFromTrain (
-	IN TrainNumber INT)
-BEGIN
-	IF (TrainNumber NOT IN (SELECT TrainNumber FROM Trains WHERE TrainNumber = TrainNumber)) THEN
-		SIGNAL SQLSTATE '45000'
-		SET MESSAGE_TEXT = 'TrainNumber does not exist.';
-	ELSEIF (TrainNumber NOT IN (SELECT TrainNumber FROM TrainCrews WHERE TrainNumber = TrainNumber)) THEN
-		SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'This train is not assigned a crew.';
-	ELSE
-		DELETE FROM TrainCrews WHERE TrainNumber = TrainNumber;
-	END IF;
-END$$
-DELIMITER ;
-
-DROP PROCEDURE IF EXISTS uspClientMoveTrain;
-DELIMITER $$
-CREATE PROCEDURE uspClientMoveTrain (
-	IN TrainNumber INT,
-    IN ModuleName VARCHAR(255))
-BEGIN
-	IF (TrainNumber NOT IN (SELECT TrainNumber FROM Trains WHERE TrainNumber = TrainNumber)) THEN
-		SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Train not found';
-	ELSEIF (ModuleName NOT IN (SELECT ModuleName FROM ModulesAvailable WHERE ModuleName = ModuleName)) THEN
-		SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'This module does not exist or is not active.';
-	ELSEIF (TrainNumber NOT IN (SELECT TrainNumber FROM TrainCrews WHERE TrainNumber = TrainNumber)) THEN
-		SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'This train is not crewed and cannot move.';
-	ELSE
-		UPDATE TrainLocations SET ModuleName = ModuleName WHERE TrainNumber = TrainNumber;
-	END IF;
-END$$
-DELIMITER ;
-
+#uspClientServiceIndustry('CarID')
 DROP PROCEDURE IF EXISTS uspClientServiceIndustry;
 DELIMITER $$
 CREATE PROCEDURE uspClientServiceIndustry (
-	IN CarID VARCHAR(255))
+	IN MyCarID VARCHAR(255))
 BEGIN
-	#ShipmentsLoaded
-	#Trigger to free AvailableLength for IndustrySidings as RollingStockCars are loaded
-	#This may be better to be in the uspLoadIndustry than as a trigger.
-		IF (CarID NOT IN (SELECT CarID FROM RollingStockCars WHERE CarID = CarID)) THEN
+	DECLARE MyShipmentID INT;
+    DECLARE MyShipmentLoaded BOOL;
+    DECLARE MyShipmentUnloaded BOOL;
+    DECLARE MyProductTypeName VARCHAR(255);
+    DECLARE MyFromIndustry VARCHAR(255);
+    DECLARE MyToIndustry VARCHAR(255);
+
+	DECLARE CarAtIndustryName VARCHAR(255);
+    DECLARE CarAtSidingNumber INT;
+    DECLARE AccessibleCarSiding BOOL;
+    
+    DECLARE MyCarLength INT;
+    DECLARE MyFromSiding INT;
+    
+    IF (MyCarID NOT IN (SELECT CarID FROM RollingStockCars WHERE CarID = MyCarID)) THEN
 		SIGNAL SQLSTATE '45000'
-		SET MESSAGE_TEXT = 'Car not found.';
+		SET MESSAGE_TEXT = 'This car could not be found.';
+    ELSEIF (MyCarID NOT IN (SELECT CarID FROM Waybills WHERE CarID = MyCarID)) THEN
+		SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'This car is not in service.';
 	ELSE
-		SET @shipmentID = (SELECT ShipmentID FROM Waybills WHERE CarID = CarID);
-		SET @productTypeName = (SELECT ProductTypeName FROM Shipments WHERE ShipmentID = @shipmentID);
-		IF (@shipmentID NOT IN (SELECT ShipmentID FROM ShipmentsLoaded WHERE ShipmentID = @shipmentID)
-			AND
-			@productTypeName IN (SELECT ProductTypeName FROM IndustryProducts WHERE IndustryName = IndustryName AND IsProducer = TRUE)) THEN
-			INSERT INTO ShipmentsLoaded VALUES (@shippingID, DEFAULT);
-		ELSEIF (@shipmentID NOT IN (SELECT ShipmentID FROM ShipmentsUnloaded WHERE ShipmentID = @shipmentID)
-			AND
-			@productTypeName IN (SELECT ProductTypeName FROM IndustryProducts WHERE IndustryName = IndustryName AND IsProducer = FALSE)) THEN
-			INSERT INTO ShipmentsUnloaded VALUES (@shipmentID, DEFAULT);
+		#check if car is at correct industry and siding for associated product types.  if not, fail.
+        SET MyShipmentID = (SELECT ShipmentID
+			FROM Waybills
+            WHERE CarID = MyCarID);
+		SET MyShipmentLoaded = (MyShipmentID IN (SELECT ShipmentID
+			FROM ShipmentsLoaded
+            WHERE ShipmentID = MyShipmentID));
+        SET MyShipmentUnloaded = (MyShipmentID IN (SELECT ShipmentID
+			FROM ShipmentsUnloaded
+            WHERE ShipmentID = MyShipmentID));
+
+		SET MyProductTypeName = (SELECT ProductTypeName
+			FROM Shipments
+            WHERE ShipmentID = MyShipmentID);
+		SET MyFromIndustry = (SELECT FromIndustry
+			FROM Shipments
+            WHERE ShipmentID = MyShipmentID);
+        SET MyToIndustry = (SELECT ToIndustry
+			FROM Shipments
+            WHERE ShipmentID = MyShipmentID);
+        
+		SET CarAtIndustryName = (SELECT IndustryName
+			FROM RollingStockAtIndustries
+            WHERE CarID = MyCarID);
+		SET CarAtSidingNumber = (SELECT SidingNumber
+			FROM RollingStockAtIndustries
+            WHERE CarID = MyCarID);
+		SET AccessibleCarSiding = (CarAtSidingNumber IN (SELECT s.SidingNumber
+			FROM IndustrySidings s
+			JOIN IndustryProducts p ON s.IndustryName = p.IndustryName
+			WHERE p.ProductTypeName NOT IN (SELECT ProductTypeName
+				FROM SidingAssignments
+				WHERE IndustryName = CarAtIndustryName)
+				AND s.SidingNumber NOT IN (SELECT SidingNumber
+					FROM SidingAssignments
+					WHERE IndustryName = CarAtIndustryName)
+				AND s.IndustryName = CarAtIndustryName
+				AND p.ProductTypeName = MyProductTypeName
+			UNION SELECT s.SidingNumber
+			FROM IndustrySidings s
+			JOIN IndustryProducts p ON s.IndustryName = p.IndustryName
+			WHERE p.ProductTypeName IN (SELECT ProductTypeName
+				FROM SidingAssignments
+				WHERE IndustryName = CarAtIndustryName)
+				AND s.SidingNumber IN (SELECT SidingNumber
+					FROM SidingAssignments
+					WHERE IndustryName = CarAtIndustryName)
+				AND s.IndustryName = CarAtIndustryName
+				AND p.ProductTypeName = MyProductTypeName));
+        
+		IF (CarAtIndustryName = MyFromIndustry AND NOT MyShipmentLoaded) THEN
+			#do loading stuff
+			IF (AccessibleCarSiding) THEN
+				INSERT INTO ShipmentsLoaded VALUES (MyShipmentID, DEFAULT);
+                
+				SET MyCarLength = (SELECT CarLength
+					FROM RollingStockTypes
+					WHERE CarTypeName = (SELECT CarTypeName
+						FROM RollingStockCars
+						WHERE CarID = MyCarID));
+				SET MyFromSiding = (SELECT FromSiding
+					FROM Shipments
+					WHERE ShipmentID = MyShipmentID);
+	            UPDATE IndustrySidings SET AvailableLength = AvailableLength + MyCarLength WHERE IndustryName = MyFromIndustry AND SidingNumber = MyFromSiding;
+            ELSE
+				SIGNAL SQLSTATE '45000'
+				SET MESSAGE_TEXT = 'Cannot load this car at this siding.';
+            END IF;
+		ELSEIF (CarAtIndustryName = MyToIndustry AND MyShipmentLoaded AND NOT MyShipmentUnloaded) THEN
+			#do unloading stuff
+			IF (AccessibleCarSiding) THEN
+				INSERT INTO ShipmentsUnloaded VALUES (MyShipmentID, DEFAULT);
+            ELSE
+				SIGNAL SQLSTATE '45000'
+				SET MESSAGE_TEXT = 'Cannot unload this car at this siding.';
+            END IF;
 		ELSE
+			#fail
 			SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Unable to service industry with this car at this location.';
+			SET MESSAGE_TEXT = 'This industry has no shipments for this car.';
 		END IF;
-	END IF;
+    END IF;
 END$$
 DELIMITER ;

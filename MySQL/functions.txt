@@ -295,3 +295,11 @@ BEGIN
 	RETURN MyModuleName;
 END$$
 DELIMITER ;
+
+#ufnGetNextDestination('CarID')
+
+#ufnGetNextSiding('CarID)
+
+#ufnGetNextLocation('CarID')
+
+#ufnGetCarLoadStatus('CarID')

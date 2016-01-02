@@ -122,7 +122,7 @@ CALL uspClientRemoveCarFromGame('DD');
 CALL uspClientRemoveCarFromGame('EE');
 CALL uspClientRemoveCarFromGame('FF');
 
-#uspClientRemoveCarFromService
+#Test uspClientRemoveCarFromService
 CALL uspClientAddCarToGame('AA', 'Box Car', 'Black River Yard');
 CALL uspClientAddCarToGame('BB', 'Box Car', 'Black River Yard');
 CALL uspClientAddCarToGame('CC', 'Box Car', 'Black River Yard');
@@ -149,7 +149,7 @@ CALL uspClientRemoveCarFromGame('BB');
 CALL uspClientRemoveCarFromGame('CC');
 CALL uspClientRemoveCarFromGame('DD');
 
-#uspClientModifyCarInService
+#Test uspClientModifyCarInService
 CALL uspClientAddCarToGame('AA', 'Box Car', 'Black River Yard');
 CALL uspClientAddCarToGame('BB', 'Box Car', 'Black River Yard');
 CALL uspClientAddCarToGame('CC', 'Box Car', 'Black River Yard');
@@ -174,7 +174,54 @@ CALL uspClientRemoveCarFromGame('BB');
 CALL uspClientRemoveCarFromGame('CC');
 CALL uspClientRemoveCarFromGame('DD');
 
-#ufnGetCarModuleName('CarID')
+#Test uspClientAddCrewToTrain(TrainNumber, 'CrewName')
+CALL uspClientAddTrain(1, 1234, 1234, 'Black River Yard');
+CALL uspClientAddTrain(2, 2345, 2345, 'Black River Yard');
+CALL uspClientAddCrewToTrain(1, 'Thomas Dye');
+CALL uspClientAddCrewToTrain(2, 'Al Lowe');
+CALL uspClientAddCrewToTrain(99, 'Mike Donnelly'); -- This train could not be found.
+CALL uspClientAddTrain(3, 3456, 3456, 'Black River Yard');
+CALL uspClientAddCrewToTrain(3, 'Al Lowe'); -- This crew is already assigned to another train.
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE Trains;
+TRUNCATE TABLE TrainCrews;
+SET FOREIGN_KEY_CHECKS = 1;
+
+#Test uspClientRemoveCrewFromTrain(TrainNumber)
+CALL uspClientAddTrain(1, 1234, 1234, 'Black River Yard');
+CALL uspClientAddTrain(2, 2345, 2345, 'Black River Yard');
+CALL uspClientAddTrain(3, 3456, 3456, 'Black River Yard');
+CALL uspClientAddCrewToTrain(1, 'Thomas Dye');
+CALL uspClientAddCrewToTrain(2, 'Al Lowe');
+CALL uspClientAddCrewToTrain(3, 'Mike Donnelly');
+CALL uspClientRemoveCrewFromTrain(1);
+CALL uspClientRemoveCrewFromTrain(2);
+CALL uspClientRemoveCrewFromTrain(99); -- This train could not be found.
+CALL uspClientRemoveCrewFromTrain(2); -- This train is not assigned a crew.
+CALL uspClientRemoveCrewFromTrain(3);
+CALL uspClientRemoveTrain(1);
+CALL uspClientRemoveTrain(2);
+CALL uspClientRemoveTrain(3);
+
+#Test uspClientMoveTrain(TrainNumber, 'ModuleName')
+CALL uspClientAddTrain(1, 1234, 1234, 'Black River Yard');
+CALL uspClientAddTrain(2, 2345, 2345, 'Black River Yard');
+CALL uspClientAddTrain(3, 3456, 3456, 'Black River Yard');
+CALL uspClientAddCrewToTrain(1, 'Thomas Dye');
+CALL uspClientAddCrewToTrain(2, 'Al Lowe');
+CALL uspClientMoveTrain(1, 'Chesterfield');
+CALL uspClientMoveTrain(2, '180 Farms');
+CALL uspClientMoveTrain(99, 'Grain Elevator'); -- This train could not be found.
+CALL uspClientMoveTrain(1, 'Unknown'); -- This location does not exist or is not active.
+CALL uspClientMoveTrain(3, 'Grain Elevator'); -- This train is not crewed and cannot move.
+CALL uspClientMoveTrain(1, 'Chesterfield'); -- The train was already at that location.
+CALL uspClientRemoveCrewFromTrain(1);
+CALL uspClientRemoveCrewFromTrain(2);
+CALL uspClientRemoveTrain(1);
+CALL uspClientRemoveTrain(2);
+CALL uspClientRemoveTrain(3);
+
+#Test ufnGetCarModuleName('CarID')
 CALL uspClientAddCarToGame('AA', 'Box Car', 'Black River Yard');
 DELETE FROM RollingStockAtYards WHERE CarID = 'AA';
 CALL uspClientAddCarToGame('BB', 'Box Car', 'Black River Yard');
@@ -193,3 +240,120 @@ CALL uspClientRemoveCarFromGame('CC');
 DELETE FROM ConsistedCars WHERE CarID = 'DD';
 CALL uspClientRemoveTrain(1);
 CALL uspClientRemoveCarFromGame('DD');
+
+#Test uspClientMoveCarToTrain(TrainNumber, 'CarID')
+CALL uspClientAddCarToGame('AA', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('BB', 'Box Car', 'Black River Yard');
+DELETE FROM RollingStockAtYards WHERE CarID = 'BB';
+INSERT INTO RollingStockAtIndustries VALUES ('BB', 'MMI Transfer Site 3', 1, DEFAULT);
+CALL uspClientAddCarToGame('CC', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('DD', 'Box Car', 'Black River Yard');
+DELETE FROM RollingStockAtYards WHERE CarID = 'DD';
+CALL uspClientAddTrain(1, 1234, 1234, 'Black River Yard');
+INSERT INTO ConsistedCars VALUES (1, 'DD', DEFAULT);
+CALL uspClientAddCarToGame('EE', 'Box Car', 'Black River Yard');
+DELETE FROM RollingStockAtYards WHERE CarID = 'EE';
+INSERT INTO RollingStockAtIndustries VALUES ('EE', 'Half Circle Farms', 1, DEFAULT);
+CALL uspClientAddCarToGame('FF', 'Box Car', 'Black River Yard');
+DELETE FROM RollingStockAtYards WHERE CarID = 'FF';
+CALL uspClientAddTrain(2, 2345, 2345, 'Black River Yard');
+INSERT INTO ConsistedCars VALUES (2, 'FF', DEFAULT);
+CALL uspClientMoveCarToTrain(1, 'AA');
+CALL uspClientMoveCarToTrain(1, 'BB');
+CALL uspClientMoveCarToTrain(99, 'CC'); -- This train could not be found.
+CALL uspClientMoveCarToTrain(1, 'XX'); -- This car could not be found.
+CALL uspClientMoveCarToTrain(1, 'DD'); -- This car is already in your train.
+CALL uspClientMoveCarToTrain(1, 'EE'); -- This car is not in the same location as the train.
+CALL uspClientMoveCarToTrain(1, 'FF'); -- This car is not available.
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE Trains;
+TRUNCATE TABLE RollingStockCars;
+TRUNCATE TABLE RollingStockAtYards;
+TRUNCATE TABLE RollingStockAtIndustries;
+TRUNCATE TABLE ConsistedCars;
+SET FOREIGN_KEY_CHECKS = 1;
+
+#Test uspClientMoveCarFromTrainToYard(TrainNumber, 'CarID', 'YardName')
+CALL uspClientAddCarToGame('AA', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('BB', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('CC', 'Box Car', 'Black River Yard');
+CALL uspClientAddTrain(1, 1234, 1234, 'Black River Yard');
+CALL uspClientMoveCarToTrain(1, 'AA');
+CALL uspClientMoveCarToTrain(1, 'BB');
+CALL uspClientMoveCarFromTrainToYard(1, 'AA', 'Black River Yard');
+CALL uspClientMoveCarFromTrainToYard(1, 'BB', 'Black River Yard');
+CALL uspClientMoveCarFromTrainToYard(99, 'CC', 'Black River Yard'); -- Train not found.
+CALL uspClientMoveCarFromTrainToYard(1, 'XX', 'Black River Yard'); -- Car not found.
+CALL uspClientMoveCarFromTrainToYard(1, 'CC', 'Unknown'); -- This yard does not exist.
+CALL uspClientMoveCarFromTrainToYard(1, 'CC', 'Black River Yard'); -- This car is not in your train.
+CALL uspClientMoveCarToTrain(1, 'CC');
+UPDATE TrainLocations SET ModuleName = 'Chesterfield' WHERE TrainNumber = 1;
+CALL uspClientMoveCarFromTrainToYard(1, 'CC', 'Black River Yard'); -- The train cannot drop off the car at the yard from this location.
+DELETE FROM ConsistedCars WHERE TrainNumber = 1 AND CarID = 'CC';
+CALL uspClientRemoveTrain(1);
+CALL uspClientRemoveCarFromGame('AA');
+CALL uspClientRemoveCarFromGame('BB');
+CALL uspClientRemoveCarFromGame('CC');
+
+#Test uspClientMoveCarFromTrainToIndustry(TrainNumber, 'CarID', 'IndustryName', SidingNumber)
+CALL uspClientAddCarToGame('AA', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('BB', 'Box Car', 'Black River Yard');
+CALL uspClientAddCarToGame('CC', 'Box Car', 'Black River Yard');
+CALL uspClientAddTrain(1, 1234, 1234, 'Black River Yard');
+CALL uspClientMoveCarToTrain(1, 'AA');
+CALL uspClientMoveCarToTrain(1, 'BB');
+CALL uspClientMoveCarToTrain(1, 'CC');
+CALL uspClientMoveCarFromTrainToIndustry(1, 'AA', 'MMI Transfer Site 3', 1);
+CALL uspClientMoveCarFromTrainToIndustry(1, 'BB', 'MMI Transfer Site 3', 1);
+CALL uspClientMoveCarFromTrainToIndustry(99, 'CC', 'MMI Transfer Site 3', 1); -- This train could not be found.
+CALL uspClientMoveCarFromTrainToIndustry(1, 'XX', 'MMI Transfer Site 3', 1); -- This car could not be found.
+CALL uspClientMoveCarFromTrainToYard(1, 'CC', 'Black River Yard');
+CALL uspClientMoveCarFromTrainToIndustry(1, 'CC', 'MMI Transfer Site 3', 1); -- This car is not in your train.
+CALL uspClientMoveCarToTrain(1, 'CC');
+CALL uspClientMoveCarFromTrainToIndustry(1, 'CC', 'Unknown', 1); -- This industry does not exist or is not available.
+CALL uspClientMoveCarFromTrainToIndustry(1, 'CC', 'MMI Transfer Site 3', 99); -- This siding does not exist at this industry.
+UPDATE TrainLocations SET ModuleName = 'Chesterfield' WHERE TrainNumber = 1;
+CALL uspClientMoveCarFromTrainToIndustry(1, 'CC', 'MMI Transfer Site 3', 1); -- The train cannot drop off the car at the industry from this location.
+DELETE FROM ConsistedCars WHERE TrainNumber = 1 AND CarID = 'CC';
+CALL uspClientRemoveTrain(1);
+CALL uspClientRemoveCarFromGame('AA');
+CALL uspClientRemoveCarFromGame('BB');
+CALL uspClientRemoveCarFromGame('CC');
+
+#Test uspClientServiceIndustry('CarID')
+CALL uspClientAddTrain(1, 1234, 1234, 'Black River Yard');
+CALL uspClientAddCarToGame('AA', 'Tank Car', 'Black River Yard');
+CALL uspClientAddCarToService('AA');
+CALL uspClientAddCrewToTrain(1, 'Thomas Dye');
+CALL uspClientMoveCarToTrain(1, 'AA');
+SET @industry = (SELECT FromIndustry FROM Shipments WHERE ShipmentID = (SELECT ShipmentID FROM Waybills WHERE CarID = 'AA'));
+SET @siding = (SELECT FromSiding FROM Shipments WHERE ShipmentID = (SELECT ShipmentID FROM Waybills WHERE CarID = 'AA'));
+SET @module = (SELECT ModuleName FROM Industries WHERE IndustryName = @industry);
+CALL uspClientMoveTrain(1, @module);
+CALL uspClientMoveCarFromTrainToIndustry(1, 'AA', @industry, @siding);
+CALL uspClientServiceIndustry('AA');
+CALL uspClientMoveCarToTrain(1, 'AA');
+SET @industry = (SELECT ToIndustry FROM Shipments WHERE ShipmentID = (SELECT ShipmentID FROM Waybills WHERE CarID = 'AA'));
+SET @siding = (SELECT ToSiding FROM Shipments WHERE ShipmentID = (SELECT ShipmentID FROM Waybills WHERE CarID = 'AA'));
+SET @module = (SELECT ModuleName FROM Industries WHERE IndustryName = @industry);
+CALL uspClientMoveTrain(1, @module);
+CALL uspClientMoveCarFromTrainToIndustry(1, 'AA', @industry, @siding);
+CALL uspClientServiceIndustry('AA');
+CALL uspClientMoveCarToTrain(1, 'AA');
+SET @yard = (SELECT YardName FROM Waybills WHERE CarID = 'AA');
+SET @module = (SELECT ModuleName FROM Yards WHERE YardName = @yard);
+CALL uspClientMoveTrain(1, @module);
+CALL uspClientMoveCarFromTrainToYard(1, 'AA', @yard);
+CALL uspClientRemoveCrewFromTrain(1);
+CALL uspClientRemoveCarFromService('AA');
+CALL uspClientRemoveCarFromGame('AA');
+CALL uspClientRemoveTrain(1);
+SET @industry = NULL;
+SET @siding = NULL;
+SET @module = NULL;
+SET @yard = NULL;
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE Shipments;
+TRUNCATE TABLE ShipmentsLoaded;
+TRUNCATE TABLE ShipmentsUnloaded;
+SET FOREIGN_KEY_CHECKS = 1;
