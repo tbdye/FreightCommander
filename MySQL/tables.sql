@@ -127,14 +127,13 @@ CREATE TABLE Junctions (
 #Trigger to ensure that FromLine and ToLine are not the same entities.
 DELIMITER $$
 CREATE TRIGGER JunctionsTrigger BEFORE INSERT ON Junctions
-	FOR EACH ROW
-	BEGIN
-		IF (NEW.FromLine = NEW.ToLine)
-		THEN
-			SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'A junction can only exist between two different main lines.';
-		END IF;
-	END$$
+FOR EACH ROW
+BEGIN
+    IF (NEW.FromLine = NEW.ToLine) THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'A junction can only exist between two different main lines.';
+    END IF;
+END$$
 DELIMITER ;
 
 #RollingStockTypes
@@ -152,14 +151,13 @@ CREATE TABLE RollingStockTypes (
 #Trigger to ensure that CarLength > 0.
 DELIMITER $$
 CREATE TRIGGER RollingStockTypesTrigger BEFORE INSERT ON RollingStockTypes
-	FOR EACH ROW
-	BEGIN
-		IF NEW.CarLength <= 0
-		THEN
-			SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'CarLength must be greater than 0.';
-		END IF;
-	END$$
+FOR EACH ROW
+BEGIN
+    IF NEW.CarLength <= 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'CarLength must be greater than 0.';
+    END IF;
+END$$
 DELIMITER ;
 
 #RollingStockCars
@@ -273,15 +271,13 @@ CREATE TABLE IndustryActivities (
 #Trigger to ensure that ActivityLevel is limited to values 1, 2, or 3.
 DELIMITER $$ 
 CREATE TRIGGER IndustryActivitiesTrigger BEFORE INSERT ON IndustryActivities
-    FOR EACH ROW
-    BEGIN
-        IF  NEW.ActivityLevel <= 0 OR 
-            NEW.ActivityLevel > 3
-        THEN 
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Activity level must be set to 1, 2, or 3.';
-        END IF;
-    END $$
+FOR EACH ROW
+BEGIN
+    IF (NEW.ActivityLevel <= 0 OR NEW.ActivityLevel > 3) THEN 
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Activity level must be set to 1, 2, or 3.';
+    END IF;
+END $$
 DELIMITER ;
 
 #ProductTypes
@@ -349,22 +345,19 @@ CREATE TABLE IndustrySidings (
 #	AvailableLength <= SidingLength
 DELIMITER $$ 
 CREATE TRIGGER IndustrySidingsTrigger BEFORE INSERT ON IndustrySidings
-    FOR EACH ROW
-    BEGIN
-        IF (NEW.SidingLength <= 0)
-        THEN 
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Siding length must be greater than 0.';
-		ELSEIF (NEW.AvailableLength <= 0)
-		THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Avaliable length must be greater than 0.';
-		ELSEIF (NEW.AvailableLength > NEW.SidingLength)
-        THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Value exceeds maximum siding length.';
-		END IF;
-    END $$
+FOR EACH ROW
+BEGIN
+    IF (NEW.SidingLength <= 0) THEN 
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Siding length must be greater than 0.';
+    ELSEIF (NEW.AvailableLength <= 0) THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Avaliable length must be greater than 0.';
+    ELSEIF (NEW.AvailableLength > NEW.SidingLength) THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Value exceeds maximum siding length.';
+    END IF;
+END $$
 DELIMITER ;
 
 #SidingAssignments
@@ -400,17 +393,16 @@ CREATE TABLE SidingAssignments (
 #	least 2 before a siding assignment can be applied.
 DELIMITER $$
 CREATE TRIGGER SidingAssignmentsTrigger BEFORE INSERT ON SidingAssignments
-	FOR EACH ROW
-	BEGIN
-		SET @industry = NEW.IndustryName;
-        SET @sidingCount = (SELECT COUNT(*) FROM IndustrySidings WHERE IndustryName = @industry GROUP BY IndustryName);
-        IF @sidingCount < 2
-		THEN
-			SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'At least two sidings must exist at this industry before siding assingments can be applied.';
-		END IF;
-		#TODO:  Add protection to ensure not all sidings have assignments
-	END$$
+FOR EACH ROW
+BEGIN
+    SET @industry = NEW.IndustryName;
+    SET @sidingCount = (SELECT COUNT(*) FROM IndustrySidings WHERE IndustryName = @industry GROUP BY IndustryName);
+    IF (@sidingCount < 2) THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'At least two sidings must exist at this industry before siding assingments can be applied.';
+    END IF;
+    #TODO:  Add protection to ensure not all sidings have assignments
+END$$
 DELIMITER ;
 
 #RollingStockAtIndustries
@@ -424,7 +416,7 @@ DELIMITER ;
 CREATE TABLE RollingStockAtIndustries (
     CarID VARCHAR(255) NOT NULL PRIMARY KEY,
     IndustryName VARCHAR(255) NOT NULL,
-	SidingNumber INT NOT NULL,
+    SidingNumber INT NOT NULL,
     TimeArrived TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (CarID)
         REFERENCES RollingStockCars (CarID)
@@ -432,9 +424,9 @@ CREATE TABLE RollingStockAtIndustries (
     FOREIGN KEY (IndustryName)
         REFERENCES Industries (IndustryName)
         ON DELETE CASCADE ON UPDATE CASCADE,
-	FOREIGN KEY (IndustryName , SidingNumber)
-		REFERENCES IndustrySidings (IndustryName , SidingNumber)
-		ON DELETE CASCADE ON UPDATE CASCADE
+    FOREIGN KEY (IndustryName , SidingNumber)
+        REFERENCES IndustrySidings (IndustryName , SidingNumber)
+        ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 #Trains
@@ -486,7 +478,7 @@ CREATE TABLE Shipments (
     FromSiding INT NOT NULL,
     ToIndustry VARCHAR(255) NOT NULL,
     ToSiding INT NOT NULL,
-	TimeCreated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    TimeCreated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (ProductTypeName)
         REFERENCES ProductTypes (ProductTypeName)
         ON DELETE CASCADE ON UPDATE CASCADE,
@@ -508,14 +500,13 @@ CREATE TABLE Shipments (
 #Trigger to ensure that FromIndustry and ToIndustry are not the same entities.
 DELIMITER $$
 CREATE TRIGGER ShipmentsTrigger BEFORE INSERT ON Shipments
-	FOR EACH ROW
-	BEGIN
-		IF (NEW.FromIndustry = NEW.ToIndustry)
-		THEN
-			SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'A shipment can only be created to service two different industries.';
-		END IF;
-	END$$
+FOR EACH ROW
+BEGIN
+    IF (NEW.FromIndustry = NEW.ToIndustry) THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'A shipment can only be created to service two different industries.';
+    END IF;
+END$$
 DELIMITER ;
 
 #Waybills
