@@ -1,4 +1,11 @@
 #uspAddTrain(TrainNumber, LeadPower, DCCAddress, 'ModuleName')
+#Add a player train to a game session.  The train must originate on a module
+#   that has been declared available.
+#Pre-conditions:
+#-- The given TrainNumber must be unique.
+#-- Valid Modules and ModulesAvailable entities must exist and match the given
+#   ModuleName input.
+#Post-conditions:  A Trains entity and TrainLocations entity is created.
 DROP PROCEDURE IF EXISTS uspAddTrain;
 DELIMITER $$
 CREATE PROCEDURE uspAddTrain (
@@ -21,6 +28,13 @@ END$$
 DELIMITER ;
 
 #uspRemoveTrain(TrainNumber)
+#Remove a player train from a game session.  A player train cannot be removed
+#   if it has consisted cars.
+#Pre-conditions:
+#-- A valid Trains entity must exist and match the given TrainNumber input.
+#-- The given TrainNumber attribute must not exist in any ConsistedCars
+#   entities.
+#Post-conditions:  The supplied Trains and TrainLocations entities are deleted.
 DROP PROCEDURE IF EXISTS uspRemoveTrain;
 DELIMITER $$
 CREATE PROCEDURE uspRemoveTrain (
@@ -39,6 +53,11 @@ END$$
 DELIMITER ;
 
 #uspModifyTrain(TrainNumber, LeadPower, DCCAddress)
+#Update the LeadPower (locomotive number) and DCCAddress descriptions for a
+#   player train.
+#Pre-conditions:  A valid Trains entity must exist.
+#Post-conditions:  The LeadPower and DCCAddress attributes are modified on the
+#   Trains entity.
 DROP PROCEDURE IF EXISTS uspModifyTrain;
 DELIMITER $$
 CREATE PROCEDURE uspModifyTrain (
@@ -56,6 +75,15 @@ END$$
 DELIMITER ;
 
 #uspAddCarToGame('CarID', 'CarTypeName', 'YardName')
+#Add a rolling stock car to a game session for player use.  Declare an
+#   identifying name and valid car type for each rolling stock car.  Cars are
+#   to be added to yards for initial classification.
+#Pre-conditions:
+#-- The given CarID must be unique.
+#-- A valid RollingStockTypes entity must exist for the given CarTypeName.
+#-- A valid Yards entity must exist for the given YardName.
+#Post-conditions:  A RollingStockCars and RollingStockAtYards entity is
+#   created.
 DROP PROCEDURE IF EXISTS uspAddCarToGame;
 DELIMITER $$
 CREATE PROCEDURE uspAddCarToGame (
@@ -81,6 +109,13 @@ END$$
 DELIMITER ;
 
 #uspRemoveCarFromGame('CarID')
+#Remove a rolling stock car from a game session.  Cars cannot be removed if
+#   they are consisted to a train or have a waybill and are in service.
+#Pre-conditions:
+#-- A valid RollingStockCars entity must exist.
+#-- Associated ConsistedCars and Waybills entities must not exist.
+#Post-conditions:  The supplied RollingStockCars, RollingStockAtIndustries, and
+#   RollingStockAtYards entites are deleted. 
 DROP PROCEDURE IF EXISTS uspRemoveCarFromGame;
 DELIMITER $$
 CREATE PROCEDURE uspRemoveCarFromGame (
@@ -103,6 +138,30 @@ END$$
 DELIMITER ;
 
 #uspAddCarToService('CarID')
+#Generate a shipping order and associate a waybill to a rolling stock car that
+#   is active (added) in a game session.  To be added to service, the rolling
+#   stock car must not currently be in service.  A car will not be able to be
+#   added to service if its associated product type does not have a producer
+#   and consumer industry on the current layout, or if industries report that
+#   they are at production capacity and no goods are available to ship.  An
+#   industry will become available again after it is serviced by players.
+#Pre-conditions:
+#-- A valid RollingStockTypes entity must exist.
+#-- An associated Waybills entity must not exist.
+#-- For a given car type, the product type must be allowable on the current
+#   layout.
+#-- For a given product type, an associated producing industry must have
+#   available length greater than the given rolling stock car's length on an
+#   industry siding.
+#-- For a given product type, an associated consuming industry must have
+#   available length greater than the given rolling stock car's length on an
+#   industry siding.
+#Post-conditions:
+#-- A Shipments entity is created.
+#-- A Waybills entity is created and associated with the given RollingStockCars
+#   entity.
+#-- AvailableLength is reduced by the rolling stock car's length on an assigned
+#   producing industry siding.
 DROP PROCEDURE IF EXISTS uspAddCarToService;
 DELIMITER $$
 CREATE PROCEDURE uspAddCarToService (
@@ -117,6 +176,7 @@ BEGIN
     DECLARE MyToSiding INT;
     DECLARE MyYardName VARCHAR(255);
     
+    #Do basic qualifications for this car to see if it is eligible for service.
     IF (MyCarID NOT IN (SELECT CarID FROM RollingStockCars WHERE CarID = MyCarID)) THEN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Car not found.';
@@ -124,6 +184,9 @@ BEGIN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Car already in service.';
     ELSE
+        #The car is qualified to be assigned to a shipping order.  Check if the
+        #layout is capable of producing and consuming a product type this car
+        #can carry.  If so, assign one.
         SET MyCarTypeName = (SELECT CarTypeName
             FROM RollingStockCars
             WHERE CarID = MyCarID);
@@ -133,6 +196,13 @@ BEGIN
             SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'No industry orders for this car type on this layout.';
         ELSE
+            #A pair of producing and consuming industries servicing the
+            #assigned product type are guaranteed to exist.  Check if there is
+            #a producing industry of this product type that has room for this
+            #rolling stock car's length.  If so, assign it as a load point.
+            #Check if there is a consuming industry of this product type that
+            #has room for this rolling stock car's length.  If so, assign it as
+            #an unload point.
             SET MyCarLength = (SELECT CarLength
                 FROM RollingStockTypes
                 WHERE CarTypeName = MyCarTypeName);
@@ -143,16 +213,24 @@ BEGIN
                 SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'No industry orders at this time.';
             ELSE
+                #Both a producing industry and consuming industry are
+                #guaranteed to accept delivery.  Assign the industry sidings
+                #with the most free space for loading and unloading.  If siding
+                #assignments exist for the chosen product type, use them.
                 SET MyFromSiding = ufnGetIndustrySiding(MyFromIndustry, MyProductTypeName);
                 SET MyToSiding = ufnGetIndustrySiding(MyToIndustry, MyProductTypeName);
                 
+                #Create the shipping order.  Reduce the reported available
+                #length at the producing industry's siding by the incoming
+                #car's length.
                 INSERT INTO Shipments VALUES (DEFAULT, MyProductTypeName, MyFromIndustry, MyFromSiding, MyToIndustry, MyToSiding, DEFAULT);
                 UPDATE IndustrySidings SET AvailableLength = AvailableLength - MyCarLength WHERE IndustryName = MyFromIndustry AND SidingNumber = MyFromSiding;
                 
+                #Create the waybill.  Randomly assign a return yard for the car
+                #to use after the shipping order is completed.
                 SET MyYardName = (SELECT YardName
                     FROM Yards
-                    ORDER BY RAND() LIMIT 0, 1);
-                    
+                    ORDER BY RAND() LIMIT 0, 1);   
                 INSERT INTO Waybills VALUES (MyCarID, LAST_INSERT_ID(), MyYardName);
             END IF;
         END IF;

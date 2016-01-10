@@ -1,5 +1,6 @@
 #ufnGetProductType('CarTypeName')
-#For a given car type, return a random product type.
+#For a given car type, return a random product type.  The product type is
+#   guaranteed to have a producer and consumer on the layout.
 DROP FUNCTION IF EXISTS ufnGetProductType;
 DELIMITER $$
 CREATE FUNCTION ufnGetProductType (
@@ -9,9 +10,8 @@ DETERMINISTIC
 BEGIN
     DECLARE MyProductTypeName VARCHAR(255);
     
-    #Select an available product type at random for a given car type.
-    #TODO:  Refactor and test this.  I don't think it needs to join two
-    #selections which seem to remove the need for the isProducer filter.
+    #Select an available product type at random for a given car type.  Product
+    #types that only have producers or only have consumers are ignored. 
     SET MyProductTypeName = (SELECT o1.*
         FROM (SELECT ProductTypeName
             FROM IndustryProducts
@@ -37,7 +37,9 @@ DELIMITER ;
 #For a given product type, return the name of a random industry that produces
 #   that product and ensure that the transporting railcar will fit at that
 #   industry siding.  Selection of industries are weighted so those with higher
-#   activity levels are more likely to be chosen.
+#   activity levels are more likely to be chosen.  Industries become ineligible
+#   for shipments if the available length reported for their sidings is less
+#   than the servicing car's reported CarLength.
 DROP FUNCTION IF EXISTS ufnGetProducingIndustry;
 DELIMITER $$
 CREATE FUNCTION ufnGetProducingIndustry (
@@ -151,7 +153,9 @@ DELIMITER ;
 #For a given product type, return the name of a random industry that consumes
 #   that product and ensure that the transporting railcar will fit at that
 #   industry siding.  Selection of industries are weighted so those with higher
-#   activity levels are more likely to be chosen.
+#   activity levels are more likely to be chosen.  Industries become ineligible
+#   for shipments if the available length reported for their sidings is less
+#   than the servicing car's reported CarLength.
 DROP FUNCTION IF EXISTS ufnGetConsumingIndustry;
 DELIMITER $$
 CREATE FUNCTION ufnGetConsumingIndustry (
