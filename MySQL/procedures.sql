@@ -614,32 +614,8 @@ BEGIN
     DECLARE MyCarID INT;
     SET MyCarID = 1;
     
-    /*#Create a list of all possible car types for this layout.
-	DROP TEMPORARY TABLE IF EXISTS SPG_UsableCarTypes;
-    CREATE TEMPORARY TABLE SPG_UsableCarTypes (
-        CarTypeName VARCHAR(255) NOT NULL PRIMARY KEY
-    );
-    
-    INSERT INTO SPG_UsableCarTypes (CarTypeName)
-		SELECT CarTypeName
-			FROM ProductTypes
-			WHERE ProductTypeName IN (SELECT o1.*
-				FROM (SELECT ProductTypeName
-					FROM IndustryProducts
-					WHERE ProductTypeName IN (SELECT ProductTypeName
-						FROM ProductTypes)
-					AND isProducer = TRUE) o1
-				JOIN (SELECT ProductTypeName
-					FROM IndustryProducts
-					WHERE ProductTypeName IN (SELECT ProductTypeName
-						FROM ProductTypes)
-					AND isProducer = FALSE) o2
-				WHERE o1.ProductTypeName = o2.ProductTypeName
-				GROUP BY o1.ProductTypeName)
-			GROUP BY CarTypeName;*/
-
     #Create a list of industries with both producers and consumers for a product type.
-	DROP TEMPORARY TABLE IF EXISTS SPG_IndustriesList;
+    DROP TEMPORARY TABLE IF EXISTS SPG_IndustriesList;
     CREATE TEMPORARY TABLE SPG_IndustriesList (
         IndustryID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
         IndustryName VARCHAR(255) NOT NULL,
@@ -648,65 +624,80 @@ BEGIN
     );
     
     INSERT INTO SPG_IndustriesList (IndustryID, IndustryName, ProductTypeName, IsProducer)
-		SELECT NULL, IndustryName, ProductTypeName, IsProducer
-			FROM IndustryProducts
-			WHERE ProductTypeName IN (SELECT o1.*
-				FROM (SELECT ProductTypeName
-					FROM IndustryProducts
-					WHERE ProductTypeName IN (SELECT ProductTypeName
-						FROM ProductTypes)
-					AND isProducer = TRUE) o1
-				JOIN (SELECT ProductTypeName
-					FROM IndustryProducts
-					WHERE ProductTypeName IN (SELECT ProductTypeName
-						FROM ProductTypes)
-					AND isProducer = FALSE) o2
-				WHERE o1.ProductTypeName = o2.ProductTypeName GROUP BY o1.ProductTypeName);
+        SELECT NULL, IndustryName, ProductTypeName, IsProducer
+            FROM IndustryProducts
+            WHERE ProductTypeName IN (SELECT o1.*
+                FROM (SELECT ProductTypeName
+                    FROM IndustryProducts
+                    WHERE ProductTypeName IN (SELECT ProductTypeName
+                        FROM ProductTypes)
+                    AND isProducer = TRUE) o1
+                JOIN (SELECT ProductTypeName
+                    FROM IndustryProducts
+                    WHERE ProductTypeName IN (SELECT ProductTypeName
+                        FROM ProductTypes)
+                    AND isProducer = FALSE) o2
+                WHERE o1.ProductTypeName = o2.ProductTypeName GROUP BY o1.ProductTypeName);
 
-	SET @availableDeliveries = (SELECT COUNT(*)
-		FROM SPG_IndustriesList);
+    SET @availableDeliveries = (SELECT COUNT(*)
+        FROM SPG_IndustriesList);
 
-    WHILE (availableDeliveries > 0) DO
-		SET @productTypeName = (SELECT ProductTypeName
-			FROM SPG_IndustriesList
+    WHILE (@availableDeliveries > 0) DO
+        SET @productTypeName = (SELECT ProductTypeName
+            FROM SPG_IndustriesList
             GROUP BY ProductTypeName
             ORDER BY RAND() LIMIT 0, 1);
-		
-    #SELECT * FROM SPG_IndustriesList l JOIN IndustrySidings s ON l.IndustryName = s.IndustryName WHERE ProductTypeName = 'Crates';
-    
-    
-		SET @carTypeName = (SELECT CarTypeName
-			FROM SPG_UsableCarTypes
-            ORDER BY RAND() LIMIT 0, 1);
-		SET @carLength = (SELECT CarLength
-			FROM RollingStockTypes
+        SET @carTypeName = (SELECT CarTypeName
+            FROM ProductTypes
+            WHERE ProductTypeName = @productTypeName);
+        SET @carLength = (SELECT CarLength
+            FROM RollingStockTypes
             WHERE CarTypeName = @carTypeName);
-        SET @productTypeName = 
-        SET @fromIndustry = 
-        SET @toIndustry = 
         
-        IF (@fromIndustry IS NULL OR @toIndustry IS NULL) THEN
-			DELETE FROM SPG_UsableCarTypes WHERE CarTypeName = @carTypeName;
+        SET @numProducers = (SELECT COUNT(*)
+            FROM SPG_IndustriesList l
+            JOIN IndustrySidings s ON l.IndustryName = s.IndustryName
+            WHERE ProductTypeName = @productTypeName
+            AND IsProducer = TRUE
+            AND AvailableLength > @carLength);
+        IF (@numProducers = 0) THEN
+            SET SQL_SAFE_UPDATES = 0;
+            DELETE FROM SPG_IndustriesList WHERE ProductTypeName = @productTypeName;
+            SET SQL_SAFE_UPDATES = 1;
         ELSE
-			SET @fromSiding = ufnGetIndustrySiding(@fromIndustry, @productTypeName);
-			SET @toSiding = ufnGetIndustrySiding(@toIndustry, @productTypeName);
-			SET @yardName = (SELECT YardName
-				FROM Yards
-				ORDER BY RAND() LIMIT 0, 1);   
+            SET @fromIndustry = (SELECT IndustryName
+                FROM SPG_IndustriesList
+                WHERE ProductTypeName = @productTypeName
+                AND IsProducer = TRUE
+                ORDER BY RAND() LIMIT 0, 1);
+            SET @toIndustry = (SELECT IndustryName
+                FROM SPG_IndustriesList
+                WHERE ProductTypeName = @productTypeName
+                AND IsProducer = FALSE
+                ORDER BY RAND() LIMIT 0, 1);
+            SET @fromSiding = (SELECT ufnGetIndustrySiding(@fromIndustry, @productTypeName));
+            SET @toSiding = (SELECT ufnGetIndustrySiding(@toIndustry, @productTypeName));
+        
+            SET @yardName = (SELECT YardName
+                FROM Yards
+                ORDER BY RAND() LIMIT 0, 1);
             
             INSERT INTO RollingStockCars VALUES (MyCarID, @carTypeName);
             INSERT INTO Shipments VALUES (DEFAULT, @productTypeName, @fromIndustry, @fromSiding, @toIndustry, @toSiding, DEFAULT);
-			UPDATE IndustrySidings SET AvailableLength = AvailableLength - @carLength WHERE IndustryName = @fromIndustry AND SidingNumber = @fromSiding;
-			INSERT INTO Waybills VALUES (MyCarID, LAST_INSERT_ID(), @yardName);
+            UPDATE IndustrySidings SET AvailableLength = AvailableLength - @carLength WHERE IndustryName = @fromIndustry AND SidingNumber = @fromSiding;
+            INSERT INTO Waybills VALUES (MyCarID, LAST_INSERT_ID(), @yardName);
             
             SET MyCarID = MyCarID + 1;
         END IF;
         
-		SET @availableCarTypes = (SELECT COUNT(CarTypeName)
-			FROM SPG_UsableCarTypes);
+        SET @availableDeliveries = (SELECT COUNT(*)
+            FROM SPG_IndustriesList);
+    
     END WHILE;
+    
+    DROP TEMPORARY TABLE IF EXISTS SPG_IndustriesList;
 END$$
-DELIMITER ; 
+DELIMITER ;
 
 #uspStartOnDemandGame
 
@@ -715,20 +706,20 @@ DROP PROCEDURE IF EXISTS uspResetCurrentGame;
 DELIMITER $$
 CREATE PROCEDURE uspResetCurrentGame()
 BEGIN
-	SET SQL_SAFE_UPDATES = 0;
-	UPDATE IndustrySidings SET AvailableLength = SidingLength;
-	SET SQL_SAFE_UPDATES = 1;
+    SET SQL_SAFE_UPDATES = 0;
+    UPDATE IndustrySidings SET AvailableLength = SidingLength;
+    SET SQL_SAFE_UPDATES = 1;
     
-	SET FOREIGN_KEY_CHECKS = 0;
+    SET FOREIGN_KEY_CHECKS = 0;
     TRUNCATE TABLE ConsistedCars;
-	TRUNCATE TABLE RollingStockCars;
-	TRUNCATE TABLE Shipments;
-	TRUNCATE TABLE ShipmentsLoaded;
-	TRUNCATE TABLE ShipmentsUnloaded;
+    TRUNCATE TABLE RollingStockCars;
+    TRUNCATE TABLE Shipments;
+    TRUNCATE TABLE ShipmentsLoaded;
+    TRUNCATE TABLE ShipmentsUnloaded;
     TRUNCATE TABLE TrainCrews;
     TRUNCATE TABLE TrainLocations;
     TRUNCATE TABLE Trains;
     TRUNCATE TABLE Waybills;
-	SET FOREIGN_KEY_CHECKS = 1;
+    SET FOREIGN_KEY_CHECKS = 1;
 END$$
 DELIMITER ;
