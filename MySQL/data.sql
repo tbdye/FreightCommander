@@ -111,6 +111,7 @@ INSERT INTO IndustryProducts VALUES ('E.E. Aldrin Sawmill', 'Bulk Equipment', FA
 INSERT INTO IndustryProducts VALUES ('E.E. Aldrin Sawmill', 'Logs', FALSE);
 INSERT INTO IndustrySidings VALUES ('B.R. Engine House', 1, 90, 90);
 INSERT INTO IndustrySidings VALUES ('B.R. Engine House', 3, 200, 200);
+INSERT INTO IndustrySidings VALUES ('Black River MOW Shop', 1, 200, 200);
 INSERT INTO IndustrySidings VALUES ('MMI Transfer Site 3', 1, 100, 100);
 INSERT INTO IndustrySidings VALUES ('MMI Transfer Site 3', 2, 100, 100);
 INSERT INTO IndustrySidings VALUES ('MMI Transfer Site 3', 3, 150, 150);
