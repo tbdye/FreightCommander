@@ -604,107 +604,10 @@ BEGIN
 END$$
 DELIMITER ;
 
-#uspStartOnlineGame
-
-#uspStartPreplannedGame()
-DROP PROCEDURE IF EXISTS uspStartPreplannedGame;
+#uspResetGame()
+DROP PROCEDURE IF EXISTS uspResetGame;
 DELIMITER $$
-CREATE PROCEDURE uspStartPreplannedGame()
-BEGIN
-    DECLARE MyCarID INT;
-    SET MyCarID = 1;
-    
-    #Create a list of industries with both producers and consumers for a product type.
-    DROP TEMPORARY TABLE IF EXISTS SPG_IndustriesList;
-    CREATE TEMPORARY TABLE SPG_IndustriesList (
-        IndustryID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        IndustryName VARCHAR(255) NOT NULL,
-        ProductTypeName VARCHAR(255) NOT NULL,
-        IsProducer BOOL NOT NULL
-    );
-    
-    INSERT INTO SPG_IndustriesList (IndustryID, IndustryName, ProductTypeName, IsProducer)
-        SELECT NULL, IndustryName, ProductTypeName, IsProducer
-            FROM IndustryProducts
-            WHERE ProductTypeName IN (SELECT o1.*
-                FROM (SELECT ProductTypeName
-                    FROM IndustryProducts
-                    WHERE ProductTypeName IN (SELECT ProductTypeName
-                        FROM ProductTypes)
-                    AND isProducer = TRUE) o1
-                JOIN (SELECT ProductTypeName
-                    FROM IndustryProducts
-                    WHERE ProductTypeName IN (SELECT ProductTypeName
-                        FROM ProductTypes)
-                    AND isProducer = FALSE) o2
-                WHERE o1.ProductTypeName = o2.ProductTypeName GROUP BY o1.ProductTypeName);
-
-    SET @availableDeliveries = (SELECT COUNT(*)
-        FROM SPG_IndustriesList);
-
-    WHILE (@availableDeliveries > 0) DO
-        SET @productTypeName = (SELECT ProductTypeName
-            FROM SPG_IndustriesList
-            GROUP BY ProductTypeName
-            ORDER BY RAND() LIMIT 0, 1);
-        SET @carTypeName = (SELECT CarTypeName
-            FROM ProductTypes
-            WHERE ProductTypeName = @productTypeName);
-        SET @carLength = (SELECT CarLength
-            FROM RollingStockTypes
-            WHERE CarTypeName = @carTypeName);
-        
-        SET @numProducers = (SELECT COUNT(*)
-            FROM SPG_IndustriesList l
-            JOIN IndustrySidings s ON l.IndustryName = s.IndustryName
-            WHERE ProductTypeName = @productTypeName
-            AND IsProducer = TRUE
-            AND AvailableLength > @carLength);
-        IF (@numProducers = 0) THEN
-            SET SQL_SAFE_UPDATES = 0;
-            DELETE FROM SPG_IndustriesList WHERE ProductTypeName = @productTypeName;
-            SET SQL_SAFE_UPDATES = 1;
-        ELSE
-            SET @fromIndustry = (SELECT IndustryName
-                FROM SPG_IndustriesList
-                WHERE ProductTypeName = @productTypeName
-                AND IsProducer = TRUE
-                ORDER BY RAND() LIMIT 0, 1);
-            SET @toIndustry = (SELECT IndustryName
-                FROM SPG_IndustriesList
-                WHERE ProductTypeName = @productTypeName
-                AND IsProducer = FALSE
-                ORDER BY RAND() LIMIT 0, 1);
-            SET @fromSiding = (SELECT ufnGetIndustrySiding(@fromIndustry, @productTypeName));
-            SET @toSiding = (SELECT ufnGetIndustrySiding(@toIndustry, @productTypeName));
-        
-            SET @yardName = (SELECT YardName
-                FROM Yards
-                ORDER BY RAND() LIMIT 0, 1);
-            
-            INSERT INTO RollingStockCars VALUES (MyCarID, @carTypeName);
-            INSERT INTO Shipments VALUES (DEFAULT, @productTypeName, @fromIndustry, @fromSiding, @toIndustry, @toSiding, DEFAULT);
-            UPDATE IndustrySidings SET AvailableLength = AvailableLength - @carLength WHERE IndustryName = @fromIndustry AND SidingNumber = @fromSiding;
-            INSERT INTO Waybills VALUES (MyCarID, LAST_INSERT_ID(), @yardName);
-            
-            SET MyCarID = MyCarID + 1;
-        END IF;
-        
-        SET @availableDeliveries = (SELECT COUNT(*)
-            FROM SPG_IndustriesList);
-    
-    END WHILE;
-    
-    DROP TEMPORARY TABLE IF EXISTS SPG_IndustriesList;
-END$$
-DELIMITER ;
-
-#uspStartOnDemandGame
-
-#uspResetCurrentGame()
-DROP PROCEDURE IF EXISTS uspResetCurrentGame;
-DELIMITER $$
-CREATE PROCEDURE uspResetCurrentGame()
+CREATE PROCEDURE uspResetGame()
 BEGIN
     SET SQL_SAFE_UPDATES = 0;
     UPDATE IndustrySidings SET AvailableLength = SidingLength;
@@ -723,3 +626,154 @@ BEGIN
     SET FOREIGN_KEY_CHECKS = 1;
 END$$
 DELIMITER ;
+
+#uspStartOnlineGame
+
+#uspStartOfflineGame()
+#Offline game mode for operating sessions when paper car cards are to be
+#   printed in advance and interactive layouts or on-demand printing of car
+#   orders is not desired.  For all paired product types (having producing and
+#   consuming industries available), create shipping orders for those product
+#   types until all producing industries are loaded to capacity with outgoing
+#   shipments.  Each shipping order is paired to an unnamed rolling stock car
+#   with delivery orders on a waybill.  After starting an offline game, player
+#   car cards must be printed through the client interface.
+#Pre-conditions:
+#-- Each active industry must have sidings available for produced or consumed
+#   product types.
+#-- A valid Yards entity must exist.
+#Post-conditions:
+#-- One RollingStockCars entity is created for each planned shipment.
+#-- One Shipments entity is created, matching a product type to a producing
+#   and consuming industry and associated sidings.
+#-- One Waybills entity is created for each RollingStockCars entity.
+#-- Each producing industry's IndustrySidings AvailableLength attribute is
+#   reduced by the value in the assigned RollingStockTypes CarLength attribute.
+DROP PROCEDURE IF EXISTS uspStartOfflineGame;
+DELIMITER $$
+CREATE PROCEDURE uspStartOfflineGame()
+BEGIN
+    #Each rolling stock car, for this game type only, is assigned an counter
+    #that acts as a unique identifier.  The client should not print the
+    #identifier in this game mode.
+    DECLARE MyCarID INT;
+    SET MyCarID = 1;
+    
+    CALL uspResetGame;
+    
+    #Create a list of industries with both producers and consumers for a
+    #product type.  This table will act as a filtered list of available
+    #destinations and reduce in size when producing industries reach maximum
+    #shipping capacity and are removed.
+    DROP TEMPORARY TABLE IF EXISTS OG_IndustriesList;
+    CREATE TEMPORARY TABLE OG_IndustriesList (
+        IndustryID INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        IndustryName VARCHAR(255) NOT NULL,
+        ProductTypeName VARCHAR(255) NOT NULL,
+        IsProducer BOOL NOT NULL
+    );
+    
+    #Restrict this list to paired product types only and ignore unpaired
+    #product types.
+    #Example:  Industry 'A' produces product type 'flange' but there are no
+    #consuming industries of this product type.  The flange product type is
+    #unpaired and ignored.
+    INSERT INTO OG_IndustriesList (IndustryID, IndustryName, ProductTypeName, IsProducer)
+        SELECT NULL, IndustryName, ProductTypeName, IsProducer
+            FROM IndustryProducts
+            WHERE ProductTypeName IN (SELECT o1.*
+                FROM (SELECT ProductTypeName
+                    FROM IndustryProducts
+                    WHERE ProductTypeName IN (SELECT ProductTypeName
+                        FROM ProductTypes)
+                    AND isProducer = TRUE) o1
+                JOIN (SELECT ProductTypeName
+                    FROM IndustryProducts
+                    WHERE ProductTypeName IN (SELECT ProductTypeName
+                        FROM ProductTypes)
+                    AND isProducer = FALSE) o2
+                WHERE o1.ProductTypeName = o2.ProductTypeName GROUP BY o1.ProductTypeName);
+
+    #Any count greater than 0 will indicate that there are paired product types
+    #and at least two industries are still available for deliveries.
+    SET @availableDeliveries = (SELECT COUNT(*)
+        FROM OG_IndustriesList);
+
+    #While industries are available for deliveries, draw a random product type
+    #from the filtered list and find associated rolling stock information.
+    #Check if there exists any producing industries with remaining capacity for
+    #new deliveries for this product type.  If not, remove the product type in
+    #its entirety from the filtered list.  If so, select a producing and
+    #consuming industry for that product type at random, then create a shipping
+    #order and waybill.  The selected producing industry's capacity for new
+    #deliveries is reduced.
+    WHILE (@availableDeliveries > 0) DO
+        SET @productTypeName = (SELECT ProductTypeName
+            FROM OG_IndustriesList
+            GROUP BY ProductTypeName
+            ORDER BY RAND() LIMIT 0, 1);
+        SET @carTypeName = (SELECT CarTypeName
+            FROM ProductTypes
+            WHERE ProductTypeName = @productTypeName);
+        SET @carLength = (SELECT CarLength
+            FROM RollingStockTypes
+            WHERE CarTypeName = @carTypeName);
+        
+        #Capacity for new deliveries is determined through available length of
+        #an industry's track siding on the producing industry only.
+        SET @numProducers = (SELECT COUNT(*)
+            FROM OG_IndustriesList l
+            JOIN IndustrySidings s ON l.IndustryName = s.IndustryName
+            WHERE ProductTypeName = @productTypeName
+            AND IsProducer = TRUE
+            AND AvailableLength > @carLength);
+            
+        #If no available producers, the entire product type is removed from the
+        #filtered list as it is no longer qualifies as a matched pair.
+        IF (@numProducers = 0) THEN
+            SET SQL_SAFE_UPDATES = 0;
+            DELETE FROM OG_IndustriesList WHERE ProductTypeName = @productTypeName;
+            SET SQL_SAFE_UPDATES = 1;
+        ELSE
+            #Select the producing industry.
+            SET @fromIndustry = (SELECT IndustryName
+                FROM OG_IndustriesList
+                WHERE ProductTypeName = @productTypeName
+                AND IsProducer = TRUE
+                ORDER BY RAND() LIMIT 0, 1);
+            #Select the consuming industry.
+            SET @toIndustry = (SELECT IndustryName
+                FROM OG_IndustriesList
+                WHERE ProductTypeName = @productTypeName
+                AND IsProducer = FALSE
+                ORDER BY RAND() LIMIT 0, 1);
+            #Set siding assignments for industries.
+            SET @fromSiding = (SELECT ufnGetIndustrySiding(@fromIndustry, @productTypeName));
+            SET @toSiding = (SELECT ufnGetIndustrySiding(@toIndustry, @productTypeName));
+            
+            #Assign a return yard for waybill car orders.
+            SET @yardName = (SELECT YardName
+                FROM Yards
+                ORDER BY RAND() LIMIT 0, 1);
+            
+            INSERT INTO RollingStockCars VALUES (MyCarID, @carTypeName);
+            INSERT INTO Shipments VALUES (DEFAULT, @productTypeName, @fromIndustry, @fromSiding, @toIndustry, @toSiding, DEFAULT);
+            UPDATE IndustrySidings SET AvailableLength = AvailableLength - @carLength WHERE IndustryName = @fromIndustry AND SidingNumber = @fromSiding;
+            INSERT INTO Waybills VALUES (MyCarID, LAST_INSERT_ID(), @yardName);
+            
+            #Prep the next car.
+            SET MyCarID = MyCarID + 1;
+        END IF;
+        
+        #Check if there are still available deliveries (count > 0).  If not,
+        #loop will exit.
+        SET @availableDeliveries = (SELECT COUNT(*)
+            FROM OG_IndustriesList);
+    
+    END WHILE;
+    
+    DROP TEMPORARY TABLE IF EXISTS OG_IndustriesList;
+END$$
+DELIMITER ;
+
+#uspStartOnDemandGame
